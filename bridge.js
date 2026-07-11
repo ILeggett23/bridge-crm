@@ -260,7 +260,7 @@ function renderDashboard() {
   const streak = calculateStreak();
   const upcoming = activeFollowUps().slice(0, 5);
   return `${pageHead("Dashboard", "Your relationship-building work at a glance.", `<button class="icon-button" id="settingsButton" aria-label="Settings">${icons.gear}</button>`)}
-    <div class="card glass"><div class="goal-row"><div><span class="eyebrow">Daily conversation goal</span><div class="goal-count">${todayCount} of ${state.settings.dailyGoal}</div></div><button class="button primary" data-page="add">${icons.plus}<span>Add conversation</span></button></div><div class="progress"><span style="width:${Math.min(100,todayCount/Math.max(1,state.settings.dailyGoal)*100)}%"></span></div><span class="muted">${streak} day prospecting streak</span></div>
+    <div class="card glass"><div class="goal-row"><div><span class="eyebrow">Daily conversation goal</span><div class="goal-count">${todayCount} of ${state.settings.dailyGoal}</div></div><button class="button primary" data-page="add" aria-label="Add conversation">${icons.plus}<span>Add conversation</span></button></div><div class="progress"><span style="width:${Math.min(100,todayCount/Math.max(1,state.settings.dailyGoal)*100)}%"></span></div><span class="muted">${streak} day prospecting streak</span></div>
     <div class="grid stats-grid section-gap">
       ${statCard("userPlus", state.contacts.length, "Contacts")}${statCard("warning", overdue, "Overdue")}${statCard("flag", launches, "Launches")}${statCard("fire", `${streak}d`, "Streak")}
     </div>
