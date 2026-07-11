@@ -100,7 +100,7 @@ a { color: inherit; }
 .segmented button:active { transform: scale(.97); }
 .segmented button.active { color: var(--text); background: var(--surface-strong); box-shadow: 0 5px 14px rgba(40, 50, 62, .09); }
 .select-wrap { min-width: 0; min-height: 46px; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-radius: 14px; background: rgba(235, 239, 243, .82); }
-.select-wrap svg { flex: 0 0 auto; }
+.select-wrap svg { width: 21px; height: 21px; flex: 0 0 21px; }
 .select-wrap select { width: 100%; min-width: 0; max-width: 160px; border: 0; outline: 0; background: transparent; font-weight: 650; text-overflow: ellipsis; }
 .filter-row { min-width: 0; display: flex; gap: 10px; margin-bottom: 18px; }
 
