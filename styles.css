@@ -372,13 +372,29 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { color-scheme: dark; --bg: #101317; --surface: rgba(31, 36, 42, .8); --surface-strong: rgba(43, 49, 56, .95); --surface-muted: rgba(60, 67, 75, .55); --text: #f5f7f8; --muted: #a5adb6; --line: rgba(220, 230, 240, .12); --shadow: 0 18px 50px rgba(0, 0, 0, .26), inset 0 1px 0 rgba(255, 255, 255, .08); }
-  :root:not([data-theme="light"]) .sidebar, :root:not([data-theme="light"]) .modal, :root:not([data-theme="light"]) .modal-head { background: rgba(25, 29, 34, .9); border-color: rgba(255, 255, 255, .08); }
-  :root:not([data-theme="light"]) .field input, :root:not([data-theme="light"]) .field select, :root:not([data-theme="light"]) .field textarea, :root:not([data-theme="light"]) .settings-row input, :root:not([data-theme="light"]) .settings-row select { background: rgba(50, 56, 64, .76); }
-  :root:not([data-theme="light"]) .pipeline-person, :root:not([data-theme="light"]) .tabs button.active { background: rgba(54, 61, 69, .9); }
+  :root:not([data-theme="light"]) { color-scheme: dark; --bg: #0d1014; --surface: rgba(27, 32, 38, .88); --surface-strong: #1b2026; --surface-muted: rgba(70, 79, 89, .5); --text: #f7f8fa; --muted: #bbc3cc; --line: rgba(225, 232, 240, .16); --shadow: 0 12px 34px rgba(0, 0, 0, .34), 0 2px 8px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .055); }
+  :root:not([data-theme="light"]) .sidebar, :root:not([data-theme="light"]) .modal, :root:not([data-theme="light"]) .modal-head { background: rgba(19, 23, 28, .94); border-color: rgba(255, 255, 255, .1); }
+  :root:not([data-theme="light"]) .field input, :root:not([data-theme="light"]) .field select, :root:not([data-theme="light"]) .field textarea, :root:not([data-theme="light"]) .settings-row input, :root:not([data-theme="light"]) .settings-row select { color: var(--text); background: #242a31; border-color: rgba(235, 240, 246, .16); }
+  :root:not([data-theme="light"]) .pipeline-person, :root:not([data-theme="light"]) .tabs button.active { background: #282f37; }
+  :root:not([data-theme="light"]) .search, :root:not([data-theme="light"]) .select-wrap, :root:not([data-theme="light"]) .segmented { color: var(--text); background: #252b32; }
+  :root:not([data-theme="light"]) .segmented button.active { color: var(--text); background: #3a424c; box-shadow: 0 5px 16px rgba(0, 0, 0, .26); }
+  :root:not([data-theme="light"]) .check-tile, :root:not([data-theme="light"]) .log-row { background: #22282f; border-color: rgba(235, 240, 246, .14); }
+  :root:not([data-theme="light"]) .button:not(.primary) { color: var(--text); background: #292f37; border-color: rgba(235, 240, 246, .14); }
+  :root:not([data-theme="light"]) input::placeholder, :root:not([data-theme="light"]) textarea::placeholder { color: #929ca7; opacity: 1; }
+  :root:not([data-theme="light"]) .bar, :root:not([data-theme="light"]) .progress { background: rgba(190, 200, 211, .17); }
+  :root:not([data-theme="light"]) .pill { color: #d0d6dc; background: rgba(119, 130, 142, .24); }
+  :root:not([data-theme="light"]) .contact-meta span:not(:last-child)::after { color: #7f8994; }
 }
-:root[data-theme="dark"] { color-scheme: dark; --bg: #101317; --surface: rgba(31, 36, 42, .8); --surface-strong: rgba(43, 49, 56, .95); --surface-muted: rgba(60, 67, 75, .55); --text: #f5f7f8; --muted: #a5adb6; --line: rgba(220, 230, 240, .12); --shadow: 0 18px 50px rgba(0, 0, 0, .26), inset 0 1px 0 rgba(255, 255, 255, .08); }
-:root[data-theme="dark"] .sidebar, :root[data-theme="dark"] .modal, :root[data-theme="dark"] .modal-head { background: rgba(25, 29, 34, .9); border-color: rgba(255, 255, 255, .08); }
-:root[data-theme="dark"] .field input, :root[data-theme="dark"] .field select, :root[data-theme="dark"] .field textarea, :root[data-theme="dark"] .settings-row input, :root[data-theme="dark"] .settings-row select { background: rgba(50, 56, 64, .76); }
-:root[data-theme="dark"] .pipeline-person, :root[data-theme="dark"] .tabs button.active { background: rgba(54, 61, 69, .9); }
+:root[data-theme="dark"] { color-scheme: dark; --bg: #0d1014; --surface: rgba(27, 32, 38, .88); --surface-strong: #1b2026; --surface-muted: rgba(70, 79, 89, .5); --text: #f7f8fa; --muted: #bbc3cc; --line: rgba(225, 232, 240, .16); --shadow: 0 12px 34px rgba(0, 0, 0, .34), 0 2px 8px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .055); }
+:root[data-theme="dark"] .sidebar, :root[data-theme="dark"] .modal, :root[data-theme="dark"] .modal-head { background: rgba(19, 23, 28, .94); border-color: rgba(255, 255, 255, .1); }
+:root[data-theme="dark"] .field input, :root[data-theme="dark"] .field select, :root[data-theme="dark"] .field textarea, :root[data-theme="dark"] .settings-row input, :root[data-theme="dark"] .settings-row select { color: var(--text); background: #242a31; border-color: rgba(235, 240, 246, .16); }
+:root[data-theme="dark"] .pipeline-person, :root[data-theme="dark"] .tabs button.active { background: #282f37; }
+:root[data-theme="dark"] .search, :root[data-theme="dark"] .select-wrap, :root[data-theme="dark"] .segmented { color: var(--text); background: #252b32; }
+:root[data-theme="dark"] .segmented button.active { color: var(--text); background: #3a424c; box-shadow: 0 5px 16px rgba(0, 0, 0, .26); }
+:root[data-theme="dark"] .check-tile, :root[data-theme="dark"] .log-row { background: #22282f; border-color: rgba(235, 240, 246, .14); }
+:root[data-theme="dark"] .button:not(.primary) { color: var(--text); background: #292f37; border-color: rgba(235, 240, 246, .14); }
+:root[data-theme="dark"] input::placeholder, :root[data-theme="dark"] textarea::placeholder { color: #929ca7; opacity: 1; }
+:root[data-theme="dark"] .bar, :root[data-theme="dark"] .progress { background: rgba(190, 200, 211, .17); }
+:root[data-theme="dark"] .pill { color: #d0d6dc; background: rgba(119, 130, 142, .24); }
+:root[data-theme="dark"] .contact-meta span:not(:last-child)::after { color: #7f8994; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
