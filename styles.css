@@ -149,6 +149,7 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
 .pipeline-checks { margin-top: 10px; }
 .check-tile { min-width: 0; min-height: 62px; display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: rgba(247, 249, 250, .72); overflow-wrap: anywhere; }
 .check-tile input { width: 22px; height: 22px; flex: 0 0 auto; accent-color: var(--accent); }
+.favorite-place-toggle { grid-column: 1 / -1; }
 .form-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 .analytics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
