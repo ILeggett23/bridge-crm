@@ -262,6 +262,7 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
   .button { min-height: 48px; }
   .icon-button { width: 48px; height: 48px; min-width: 48px; }
   .field input, .field select, .field textarea, .date-control, .settings-row input:not([type=checkbox]), .settings-row select { min-height: 48px; font-size: 16px; }
+  .field input[type="date"], .field input[type="datetime-local"], .date-control { height: 48px; min-height: 48px; }
   .contact-card { min-height: 88px; }
   .mini-row { flex-wrap: wrap; }
   .mini-row .row-end { flex: 1 1 100%; min-width: 0; margin-left: 60px; text-align: left; }
