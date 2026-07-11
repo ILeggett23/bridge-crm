@@ -9,6 +9,38 @@ const localCache = {
   get() { try { return window.localStorage.getItem("bridge-crm-cache"); } catch { return null; } },
   set(value) { try { window.localStorage.setItem("bridge-crm-cache", value); } catch {} }
 };
+const durableCache = {
+  open() {
+    return new Promise((resolve, reject) => {
+      if (!("indexedDB" in window)) return reject(new Error("IndexedDB unavailable"));
+      const request = indexedDB.open("bridge-crm", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("state");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  },
+  async get() {
+    try {
+      const database = await this.open();
+      return await new Promise((resolve, reject) => {
+        const request = database.transaction("state", "readonly").objectStore("state").get("primary");
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      });
+    } catch { return null; }
+  },
+  async set(value) {
+    try {
+      const database = await this.open();
+      await new Promise((resolve, reject) => {
+        const transaction = database.transaction("state", "readwrite");
+        transaction.objectStore("state").put(value, "primary");
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error);
+      });
+    } catch {}
+  }
+};
 
 const PIPELINES = {
   Prospect: ["PQI", "QI/P", "FUP", "LA"],
@@ -86,9 +118,12 @@ function normalizeState(raw) {
 
 async function loadState() {
   if (!cloudStateAvailable) {
-    const cached = localCache.get();
+    const cached = localCache.get() || await durableCache.get();
     try { state = normalizeState(cached ? JSON.parse(cached) : null); }
     catch { state = defaultState(); }
+    const snapshot = JSON.stringify(state);
+    localCache.set(snapshot);
+    durableCache.set(snapshot);
     applyAppearance();
     render();
     return;
@@ -97,9 +132,11 @@ async function loadState() {
     const response = await fetch("/api/state", { headers: { Accept: "application/json" } });
     if (!response.ok) throw new Error("Cloud state unavailable");
     state = normalizeState(await response.json());
-    localCache.set(JSON.stringify(state));
+    const snapshot = JSON.stringify(state);
+    localCache.set(snapshot);
+    durableCache.set(snapshot);
   } catch {
-    const cached = localCache.get();
+    const cached = localCache.get() || await durableCache.get();
     try { state = normalizeState(cached ? JSON.parse(cached) : null); }
     catch { state = defaultState(); }
     $(".sync-status")?.replaceChildren(document.createTextNode("Local mode"));
@@ -110,7 +147,9 @@ async function loadState() {
 
 function queueSave(message = "Saved") {
   state.meta.updatedAt = nowISO();
-  localCache.set(JSON.stringify(state));
+  const snapshot = JSON.stringify(state);
+  localCache.set(snapshot);
+  durableCache.set(snapshot);
   clearTimeout(ui.saveTimer);
   ui.saveTimer = setTimeout(async () => {
     if (!cloudStateAvailable) {
@@ -124,6 +163,20 @@ function queueSave(message = "Saved") {
     } catch { showToast("Saved on this device; cloud sync will retry later"); }
   }, 220);
 }
+
+async function requestPersistentStorage() {
+  try {
+    if (navigator.storage?.persisted && await navigator.storage.persisted()) return;
+    await navigator.storage?.persist?.();
+  } catch {}
+}
+
+window.addEventListener("pointerdown", requestPersistentStorage, { once: true, passive: true });
+window.addEventListener("pagehide", () => {
+  const snapshot = JSON.stringify(state);
+  localCache.set(snapshot);
+  durableCache.set(snapshot);
+});
 
 function showToast(message) {
   const toast = $("#toast");
