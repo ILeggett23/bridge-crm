@@ -194,10 +194,12 @@ function showToast(message) {
 
 function applyAppearance() {
   const accent = ACCENTS[state.settings.accent] || ACCENTS.Teal;
+  const usesDarkTheme = state.settings.theme === "dark" || (state.settings.theme === "system" && window.matchMedia?.("(prefers-color-scheme: dark)").matches);
   document.documentElement.style.setProperty("--accent", accent[0]);
   document.documentElement.style.setProperty("--accent-rgb", accent[1]);
   document.documentElement.dataset.theme = state.settings.theme === "system" ? "" : state.settings.theme;
   document.documentElement.style.setProperty("--radius", state.settings.compact ? "18px" : "24px");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", usesDarkTheme ? "#0d1014" : "#f3f5f7");
 }
 
 function dateOnly(value) { return new Date(String(value).length === 10 ? `${value}T12:00:00` : value); }
