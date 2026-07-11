@@ -1,0 +1,19 @@
+{
+  "name": "Bridge CRM",
+  "short_name": "Bridge",
+  "description": "Prospecting, relationship, follow-up, and pipeline tracking.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f3f5f7",
+  "theme_color": "#f3f5f7",
+  "icons": [
+    {
+      "src": "./handshake_logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
