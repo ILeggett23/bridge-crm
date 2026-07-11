@@ -1,4 +1,4 @@
-const CACHE = "bridge-app-v12";
+const CACHE = "bridge-app-v13";
 const ROOT = new URL("./", self.location.href).href;
 const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("bridge.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("handshake_logo.png", ROOT).href];
 
