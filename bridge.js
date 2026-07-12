@@ -1,6 +1,7 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const { archiveInactiveContacts, hasConversationInRange, latestConversationTime, restoreContact, setFilteredOut, sortContacts } = globalThis.BridgeLogic;
+const { dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, evaluateAchievements } = globalThis.BridgeEngagement;
 const bridgeStyles = $$('link[data-bridge-styles]');
 if (bridgeStyles.length > 1) {
   const styleVersion = link => Number(new URL(link.href).searchParams.get("v")) || 0;
@@ -82,6 +83,11 @@ const icons = {
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6M10 11v6M14 11v6"/></svg>',
   location: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>'
+  ,star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor"><path d="m12 2.8 2.78 5.63 6.22.9-4.5 4.39 1.06 6.2L12 17l-5.56 2.92 1.06-6.2L3 9.33l6.22-.9Z"/></svg>'
+  ,award: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="5"/><path d="m8.5 12-1.5 9 5-3 5 3-1.5-9"/></svg>'
+  ,target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v2M21 12h-2M12 21v-2M3 12h2"/></svg>'
+  ,chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg>'
+  ,bridge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 17c2-7 5-10 9-10s7 3 9 10M3 17h18M6 17v3M18 17v3"/></svg>'
 };
 
 const defaultState = () => ({
@@ -99,13 +105,20 @@ const defaultState = () => ({
     accent: "Teal",
     compact: false,
     showConversionPercentages: true,
-    autoArchiveInactive: false
+    autoArchiveInactive: false,
+    notificationsEnabled: false,
+    followUpNotifications: true,
+    dailyReminderEnabled: true,
+    dailyReminderTime: "09:00"
   },
-  meta: { version: 2, updatedAt: nowISO() }
+  meta: { version: 3, updatedAt: nowISO(), achievements: {}, dailyReminderSentDate: null }
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", typeFilter: "All Types", archiveFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), detailId: null, settingsOpen: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", typeFilter: "All Types", archiveFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), detailId: null, settingsOpen: false, achievementsOpen: false, saveTimer: null };
+const launchParams = new URLSearchParams(location.search);
+if (["dashboard", "contacts", "add", "followups", "analytics"].includes(launchParams.get("page"))) ui.page = launchParams.get("page");
+if (launchParams.get("contact")) ui.detailId = launchParams.get("contact");
 const cloudStateAvailable = location.protocol === "https:" && !location.hostname.endsWith("github.io");
 
 function normalizeState(raw) {
@@ -129,7 +142,21 @@ function normalizeState(raw) {
   }) : [];
   archiveInactiveContacts(next.contacts, next.settings.autoArchiveInactive);
   next.places = Array.isArray(next.places) ? next.places.map(place => ({ id: place.id || uid(), name: place.name || "Unnamed Place", isFavorite: Boolean(place.isFavorite), createdAt: place.createdAt || nowISO() })) : [];
+  next.meta.achievements = next.meta.achievements && typeof next.meta.achievements === "object" ? next.meta.achievements : {};
   return next;
+}
+
+function syncAchievements(announce = true) {
+  const result = evaluateAchievements(state, state.meta.achievements || {});
+  if (!result.newlyUnlocked.length) return result;
+  const newlyUnlocked = [...result.newlyUnlocked];
+  const unlockedAt = nowISO();
+  newlyUnlocked.forEach(id => { state.meta.achievements[id] = unlockedAt; });
+  if (announce) {
+    const achievement = ACHIEVEMENTS.find(item => item.id === newlyUnlocked[0]);
+    if (achievement) showToast(`Achievement unlocked: ${achievement.name}`);
+  }
+  return { ...evaluateAchievements(state, state.meta.achievements), newlyUnlocked };
 }
 
 async function loadState() {
@@ -140,8 +167,10 @@ async function loadState() {
     const snapshot = JSON.stringify(state);
     localCache.set(snapshot);
     durableCache.set(snapshot);
+    syncAchievements(false);
     applyAppearance();
     render();
+    startReminderChecks();
     return;
   }
   try {
@@ -157,11 +186,18 @@ async function loadState() {
     catch { state = defaultState(); }
     $(".sync-status")?.replaceChildren(document.createTextNode("Local mode"));
   }
+  syncAchievements(false);
   applyAppearance();
   render();
+  startReminderChecks();
 }
 
 function queueSave(message = "Saved") {
+  const achievementResult = syncAchievements(false);
+  if (achievementResult.newlyUnlocked.length) {
+    const achievement = ACHIEVEMENTS.find(item => item.id === achievementResult.newlyUnlocked[0]);
+    if (achievement) message = `Achievement unlocked: ${achievement.name}`;
+  }
   state.meta.updatedAt = nowISO();
   const snapshot = JSON.stringify(state);
   localCache.set(snapshot);
@@ -187,7 +223,61 @@ async function requestPersistentStorage() {
   } catch {}
 }
 
+const notificationsSupported = () => "Notification" in window && "serviceWorker" in navigator;
+const notificationPermission = () => notificationsSupported() ? Notification.permission : "unsupported";
+let reminderTimer = null;
+
+async function persistStateSilently() {
+  state.meta.updatedAt = nowISO();
+  const snapshot = JSON.stringify(state);
+  localCache.set(snapshot);
+  durableCache.set(snapshot);
+  if (!cloudStateAvailable) return;
+  try { await fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, body: snapshot }); } catch {}
+}
+
+async function sendBridgeNotification(title, options) {
+  if (notificationPermission() !== "granted") return false;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    await registration.showNotification(title, { icon: "./bridge-icon-192.png", badge: "./bridge-icon-192.png", ...options });
+    return true;
+  } catch { return false; }
+}
+
+async function checkReminders() {
+  if (document.visibilityState === "hidden" || notificationPermission() !== "granted") return;
+  const events = dueReminderEvents(state, new Date());
+  if (!events.length) return;
+  let changed = false;
+  for (const event of events) {
+    if (event.type === "followup") {
+      const sent = await sendBridgeNotification(`Follow up with ${event.contact.fullName}`, {
+        body: `${event.followUp.note || "Your scheduled follow-up"} is ready now.`,
+        tag: `bridge-followup-${event.followUp.id}`,
+        data: { url: `./?page=followups&contact=${encodeURIComponent(event.contact.id)}` }
+      });
+      if (sent) { event.followUp.notificationSentAt = nowISO(); changed = true; }
+    } else {
+      const sent = await sendBridgeNotification("Ready to build your pipeline?", {
+        body: `${event.remaining} conversation${event.remaining === 1 ? "" : "s"} left to reach today’s goal.`,
+        tag: `bridge-daily-${event.date}`,
+        data: { url: "./?page=add" }
+      });
+      if (sent) { state.meta.dailyReminderSentDate = event.date; changed = true; }
+    }
+  }
+  if (changed) persistStateSilently();
+}
+
+function startReminderChecks() {
+  clearInterval(reminderTimer);
+  checkReminders();
+  reminderTimer = setInterval(checkReminders, 60_000);
+}
+
 window.addEventListener("pointerdown", requestPersistentStorage, { once: true, passive: true });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkReminders(); });
 window.addEventListener("pagehide", () => {
   const snapshot = JSON.stringify(state);
   localCache.set(snapshot);
@@ -233,10 +323,10 @@ function stageFor(contact) { return [...(PIPELINES[contact.role] || [])].reverse
 
 function render() {
   const app = $("#app");
-  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.detailId));
+  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><div class="brand-mark">B</div><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -247,10 +337,11 @@ function render() {
       <div class="nav-spacer"></div><div class="sync-status">${cloudStateAvailable ? "Cloud synced" : "Saved on this device"}</div>
     </aside>
     <main class="main"><section class="page">${renderPage()}</section></main>
-  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}`;
+  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}`;
   bindCommonEvents();
   bindPageEvents();
   if (ui.settingsOpen) bindSettingsEvents();
+  if (ui.achievementsOpen) bindAchievementEvents();
   if (ui.detailId) bindContactModalEvents();
 }
 
@@ -266,12 +357,15 @@ function renderPage() {
 
 function renderDashboard() {
   const today = todayInput();
-  const todayCount = countedConversations().filter(log => String(log.conversationDate).slice(0,10) === today).length;
+  const todayCount = countedConversations().filter(log => dayKey(log.conversationDate || log.createdAt) === today).length;
   const overdue = activeFollowUps().filter(item => new Date(item.dueDate) < new Date()).length;
   const launches = state.contacts.filter(contact => contact.stages.LA).length;
   const activeContacts = state.contacts.filter(contact => !contact.archivedAt);
   const streak = calculateStreak();
   const upcoming = activeFollowUps().slice(0, 5);
+  const achievementState = evaluateAchievements(state, state.meta.achievements || {});
+  const unlockedCount = achievementState.progress.filter(item => item.unlockedAt).length;
+  const nextAchievement = achievementState.progress.find(item => !item.unlockedAt);
   return `${pageHead("Dashboard", "Your relationship-building work at a glance.", `<button class="icon-button" id="settingsButton" aria-label="Settings">${icons.gear}</button>`)}
     <div class="card glass"><div class="goal-row"><div class="goal-copy"><span class="eyebrow">Daily conversation goal</span><div class="goal-count">${todayCount} of ${state.settings.dailyGoal}</div></div><button class="button primary" data-page="add" aria-label="Add conversation">${icons.plus}<span>Add conversation</span></button></div><div class="progress"><span style="width:${Math.min(100,todayCount/Math.max(1,state.settings.dailyGoal)*100)}%"></span></div><span class="muted">${streak} day prospecting streak</span></div>
     <div class="grid stats-grid section-gap">
@@ -280,10 +374,11 @@ function renderDashboard() {
     <div class="grid dashboard-grid">
       <div class="card glass"><h2>Upcoming Follow-Ups</h2>${upcoming.length ? `<div class="list-stack">${upcoming.map(item => miniFollowUp(item)).join("")}</div>` : emptyInline("No follow-ups scheduled", "Set one from a contact to keep momentum moving.")}</div>
       <div class="card glass"><h2>Smart Suggestions</h2><div class="list-stack">${suggestions(todayCount, overdue).map(text => `<div class="mini-row"><div class="stat-icon">${icons.check}</div><span>${escapeHTML(text)}</span></div>`).join("")}</div></div>
-    </div>`;
+    </div>
+    <div class="card glass achievement-preview section-gap"><div class="achievement-preview-icon">${icons.award}</div><div><span class="eyebrow">Achievements</span><h2>${unlockedCount} of ${ACHIEVEMENTS.length} unlocked</h2>${nextAchievement ? `<p class="muted">Next: ${escapeHTML(nextAchievement.name)} · ${Math.min(nextAchievement.current, nextAchievement.target)} of ${nextAchievement.target}</p>` : '<p class="muted">Every Bridge achievement is unlocked.</p>'}</div><button class="button subtle" id="viewAchievements">View all</button></div>`;
 }
 function statCard(icon, value, label) { return `<div class="card stat glass"><div class="stat-icon">${icons[icon]}</div><div><div class="stat-value">${value}</div><div class="muted">${label}</div></div></div>`; }
-function calculateStreak() { const days = new Set(countedConversations().map(log => String(log.conversationDate).slice(0,10))); let count=0, cursor=startOfDay(new Date()); while(days.has(cursor.toISOString().slice(0,10))){count++;cursor=addDays(cursor,-1);} return count; }
+function calculateStreak() { const days = new Set(countedConversations().map(log => dayKey(log.conversationDate || log.createdAt))); let count=0, cursor=startOfDay(new Date()); while(days.has(dayKey(cursor))){count++;cursor=addDays(cursor,-1);} return count; }
 function suggestions(todayCount, overdue) { const list=[]; if(todayCount<state.settings.dailyGoal) list.push(`Log ${state.settings.dailyGoal-todayCount} more conversation${state.settings.dailyGoal-todayCount===1?"":"s"} to reach today's goal.`); if(overdue) list.push(`Reconnect with ${overdue} overdue follow-up${overdue===1?"":"s"}.`); const high=state.contacts.filter(c=>c.interestLevel==="High"&&!c.isFilteredOut).length; if(high) list.push(`${high} high-interest contact${high===1?" is":"s are"} ready for attention.`); if(!list.length) list.push("You're caught up. Review your pipeline for the next best conversation."); return list.slice(0,3); }
 function miniFollowUp(item) { const overdue = new Date(item.dueDate)<new Date(); return `<button class="mini-row" data-contact-id="${item.contact.id}"><div class="avatar">${initials(item.contact.fullName)}</div><div><strong>${escapeHTML(item.contact.fullName)}</strong><span class="muted">${escapeHTML(item.note||"Follow up")}</span></div><div class="row-end"><span class="pill ${overdue?"danger":"accent"}">${overdue?"Overdue · ":""}${fmtDateTime(item.dueDate)}</span></div></button>`; }
 function emptyInline(title, text) { return `<div class="empty"><div><strong>${title}</strong>${text}</div></div>`; }
@@ -306,7 +401,7 @@ function nextFollowUpDate(contact){const active=contact.followUps.filter(f=>!f.c
 function renderContactList(contacts) { return contacts.length?`<div class="contact-list">${contacts.map(contactCard).join("")}</div>`:emptyInline("No contacts found","Try a different filter or add a new conversation."); }
 function contactCard(contact) { const follow=contact.followUps.filter(f=>!f.completedAt).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate))[0];const latest=latestConversationTime(contact); return `<button class="contact-card glass" data-contact-id="${contact.id}"><div class="avatar">${initials(contact.fullName)}</div><div class="contact-body"><h3>${escapeHTML(contact.fullName)}</h3><div class="contact-meta"><span>${escapeHTML(contact.role)}</span><span>${escapeHTML(contact.interestLevel)} interest</span><span>${escapeHTML(stageFor(contact))}</span>${contact.placeName?`<span>${escapeHTML(contact.placeName)}</span>`:""}${latest?`<span>Last conversation ${fmtDate(new Date(latest).toISOString())}</span>`:""}</div></div><div class="contact-status">${contact.archivedAt?'<span class="pill">Archived</span>':contact.isFilteredOut?'<span class="pill danger">Filtered out</span>':follow?`<span class="pill ${new Date(follow.dueDate)<new Date()?"danger":"accent"}">${fmtDate(follow.dueDate)}</span>`:`<span class="pill">${escapeHTML(contact.judgement)}</span>`}</div></button>`; }
 function renderPipeline(contacts) { const stages=["No stage","PQI","QI/P","FUP","LA","CNA"]; return `<div class="pipeline-board">${stages.map(stage=>{const group=contacts.filter(c=>stageFor(c)===stage);return `<div class="pipeline-column glass"><div class="column-head"><strong>${stage}</strong><span class="pill">${group.length}</span></div>${group.map(c=>`<button class="pipeline-person" data-contact-id="${c.id}"><strong>${escapeHTML(c.fullName)}</strong><div class="muted">${escapeHTML(c.role)} · ${escapeHTML(c.interestLevel)}</div></button>`).join("")||'<span class="muted">No contacts</span>'}</div>`}).join("")}</div>`; }
-function renderPlaces() { const places=state.places.map(place=>({...place,count:state.contacts.filter(c=>c.placeId===place.id||(!c.placeId&&c.placeName===place.name)).length})).sort((a,b)=>Number(b.isFavorite)-Number(a.isFavorite)||b.count-a.count); return places.length?`<div class="grid places-grid">${places.map(place=>`<div class="card place-card glass"><div><span class="eyebrow">${place.isFavorite?"Favorite place":"Saved place"}</span><h2>${escapeHTML(place.name)}</h2></div><div class="place-count">${place.count}<span class="muted place-count-label"> contacts</span></div></div>`).join("")}</div>`:emptyInline("No saved places","Add a place while creating your next contact."); }
+function renderPlaces() { const places=state.places.map(place=>({...place,count:state.contacts.filter(c=>c.placeId===place.id||(!c.placeId&&c.placeName===place.name)).length})).sort((a,b)=>Number(b.isFavorite)-Number(a.isFavorite)||b.count-a.count); return places.length?`<div class="grid places-grid">${places.map(place=>`<div class="card place-card glass"><div class="place-title-row"><h2>${escapeHTML(place.name)}</h2>${place.isFavorite?`<span class="favorite-star" role="img" aria-label="Favorite place" title="Favorite place">${icons.star}</span>`:""}</div><div class="place-count">${place.count}<span class="muted place-count-label"> contacts</span></div></div>`).join("")}</div>`:emptyInline("No saved places","Add a place while creating your next contact."); }
 
 function renderAdd() {
   return `${pageHead("Add New", "Capture a conversation in under a minute.")}
@@ -318,7 +413,7 @@ function renderAdd() {
         ${field("Conversation type",`<select name="conversationType">${CONVERSATION_TYPES.map(x=>`<option>${x}</option>`).join("")}</select>`,"full")}
       </div></section>
       <section class="form-section"><h2>Where I Met Them</h2><div class="card glass grid form-grid">
-        ${field("Saved place",`<select name="placeId"><option value="">None</option>${[...state.places].sort((a,b)=>Number(b.isFavorite)-Number(a.isFavorite)||a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${escapeHTML(p.name)}${p.isFavorite?" · Favorite":""}</option>`).join("")}</select>`)}${field("Create new place",'<input name="newPlaceName" placeholder="Coffee shop, gym, event…">')}
+        ${field("Saved place",`<select name="placeId"><option value="">None</option>${[...state.places].sort((a,b)=>Number(b.isFavorite)-Number(a.isFavorite)||a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${escapeHTML(p.name)}</option>`).join("")}</select>`)}${field("Create new place",'<input name="newPlaceName" placeholder="Coffee shop, gym, event…">')}
         <label class="check-tile favorite-place-toggle"><input type="checkbox" name="favoritePlace"><span><strong>Favorite place</strong><br><small class="muted">Save this new place as a favorite</small></span></label>
       </div></section>
       <section class="form-section"><h2>Tracking</h2><div class="card glass"><span class="eyebrow">Standalone activity</span><div class="checks tracking-checks">${stageCheck("MSA","Made Aware")}${stageCheck("DTM","Drop The Message")}</div><span class="eyebrow">Pipeline · optional</span><div class="checks pipeline-checks" id="newPipelineChecks">${PIPELINES.Prospect.map(stage=>stageCheck(stage,stageTitle(stage))).join("")}</div></div></section>
@@ -349,11 +444,27 @@ function renderAnalytics() {
 function metricBar(label,value,max){return `<div><div class="metric-label"><span>${label}</span><strong>${value}</strong></div><div class="bar"><span style="width:${value/Math.max(1,max)*100}%"></span></div></div>`;}
 function followUpAnalytics(range){const all=state.contacts.flatMap(c=>c.followUps).filter(f=>inRange(f.createdAt||f.dueDate,range));const done=all.filter(f=>f.completedAt).length;const pct=all.length?Math.round(done/all.length*100):0;return `<div class="completion-summary"><div><div class="stat-value">${pct}%</div><div class="muted">${done} of ${all.length} completed</div></div></div>`;}
 
+function achievementsModal() {
+  const result = evaluateAchievements(state, state.meta.achievements || {});
+  const groups = [...new Set(result.progress.map(item => item.category))];
+  return `<div class="modal-backdrop" id="achievementsBackdrop"><section class="modal wide" role="dialog" aria-modal="true" aria-labelledby="achievementsTitle"><header class="modal-head"><div><span class="eyebrow">Progress</span><h2 id="achievementsTitle">Achievements</h2></div><button class="icon-button close-achievements" aria-label="Close">${icons.close}</button></header><div class="modal-body achievement-groups">${groups.map(group => `<section><h3>${escapeHTML(group)}</h3><div class="achievement-grid">${result.progress.filter(item => item.category === group).map(achievementCard).join("")}</div></section>`).join("")}</div></section></div>`;
+}
+function achievementCard(item) {
+  const unlockedAt = state.meta.achievements?.[item.id];
+  const percent = Math.min(100, item.current / Math.max(1, item.target) * 100);
+  return `<article class="achievement-card ${unlockedAt ? "unlocked" : "locked"}"><div class="achievement-badge">${icons[item.icon] || icons.award}</div><div><span class="achievement-category">${unlockedAt ? `Unlocked ${fmtDate(unlockedAt, { month: "short", day: "numeric", year: "numeric" })}` : item.category}</span><h4>${escapeHTML(item.name)}</h4><p>${escapeHTML(item.description)}</p><div class="achievement-progress"><span style="width:${percent}%"></span></div><small>${Math.min(item.current, item.target)} of ${item.target}</small></div></article>`;
+}
+function bindAchievementEvents() {
+  $(".close-achievements")?.addEventListener("click", () => { ui.achievementsOpen = false; render(); });
+  $("#achievementsBackdrop")?.addEventListener("click", event => { if (event.target.id === "achievementsBackdrop") { ui.achievementsOpen = false; render(); } });
+}
+
 function settingsModal() {
   const s=state.settings;
   return `<div class="modal-backdrop" id="settingsBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><header class="modal-head"><h2 id="settingsTitle">Settings</h2><button class="icon-button close-modal" aria-label="Close">${icons.close}</button></header><div class="modal-body"><form id="settingsForm">
     ${settingsSection("Profile & Goals",`${settingsRow("Your name",`<input name="name" value="${escapeHTML(s.name)}" placeholder="Name">`)}${settingsRow("Business name",`<input name="businessName" value="${escapeHTML(s.businessName)}" placeholder="Business">`)}${settingsRow("Daily goal",`<input name="dailyGoal" type="number" min="1" max="100" value="${s.dailyGoal}">`)}${settingsRow("Weekly goal",`<input name="weeklyGoal" type="number" min="1" max="500" value="${s.weeklyGoal}">`)}${settingsRow("Monthly goal",`<input name="monthlyGoal" type="number" min="1" max="2000" value="${s.monthlyGoal}">`)}`)}
     ${settingsSection("Workflow",`${settingsRow("Default follow-up",`<select name="defaultFollowUpDays"><option value="1" ${s.defaultFollowUpDays==1?"selected":""}>1 day</option><option value="2" ${s.defaultFollowUpDays==2?"selected":""}>2 days</option><option value="7" ${s.defaultFollowUpDays==7?"selected":""}>1 week</option></select>`)}${settingsRow("Week starts",`<select name="weekStart"><option value="0" ${s.weekStart==0?"selected":""}>Sunday</option><option value="1" ${s.weekStart==1?"selected":""}>Monday</option></select>`)}<div class="settings-row settings-row-explained"><span><strong>Automatically archive inactive contacts after 30 days</strong><small>Contacts with no pipeline stage, no MSA activity, no scheduled follow-up, and no pipeline progress leave the active list after 30 days. Historical activity remains in Analytics.</small></span><input type="checkbox" name="autoArchiveInactive" ${s.autoArchiveInactive?"checked":""}></div><p class="settings-note">${state.contacts.filter(contact=>contact.archivedAt).length} archived contact${state.contacts.filter(contact=>contact.archivedAt).length===1?"":"s"}. View and restore them from the Contacts visibility filter.</p>`)}
+    ${settingsSection("Notifications",`<div class="notification-status"><span class="status-dot ${notificationPermission()}"></span><div><strong>${notificationPermission()==="granted"?"Notifications allowed":notificationPermission()==="denied"?"Notifications blocked":notificationPermission()==="unsupported"?"Notifications unavailable":"Permission not requested"}</strong><small>${notificationPermission()==="denied"?"Re-enable Bridge notifications in your browser or iPhone settings.":"Bridge asks only when you tap the permission button."}</small></div>${notificationPermission()==="default"?'<button type="button" class="button subtle" id="requestNotifications">Allow notifications</button>':""}</div>${settingsRow("Enable notifications",`<input type="checkbox" name="notificationsEnabled" ${s.notificationsEnabled?"checked":""} ${notificationPermission()!=="granted"?"disabled":""}>`)}${settingsRow("Follow-up reminders",`<input type="checkbox" name="followUpNotifications" ${s.followUpNotifications?"checked":""}>`)}${settingsRow("Daily conversation reminder",`<input type="checkbox" name="dailyReminderEnabled" ${s.dailyReminderEnabled?"checked":""}>`)}${settingsRow("Daily reminder time",`<input type="time" name="dailyReminderTime" value="${escapeHTML(s.dailyReminderTime||"09:00")}">`)}<p class="settings-note">On iPhone, install Bridge from Safari and allow notifications. With the current offline-first setup, reminder checks run while Bridge is open or resumed.</p>`)}
     ${settingsSection("Appearance",`${settingsRow("Theme",`<select name="theme"><option value="system" ${s.theme==="system"?"selected":""}>System</option><option value="light" ${s.theme==="light"?"selected":""}>Light</option><option value="dark" ${s.theme==="dark"?"selected":""}>Dark</option></select>`)}${settingsRow("Accent color",`<div class="accent-options">${Object.entries(ACCENTS).map(([name,[color]])=>`<button type="button" class="accent-dot ${s.accent===name?"active":""}" data-accent="${name}" title="${name}" style="background:${color};color:${color}"></button>`).join("")}</div>`)}${settingsRow("Compact cards",`<input type="checkbox" name="compact" ${s.compact?"checked":""}>`)}`)}
     ${settingsSection("Data & Backup",`${settingsRow("Download all Bridge data",`<button type="button" class="button subtle" id="exportBackup">${icons.download}JSON</button>`)}${settingsRow("Export contacts",`<button type="button" class="button subtle" id="exportCSV">${icons.download}CSV</button>`)}${settingsRow("Restore from backup",`<label class="button subtle">Choose file<input id="importBackup" type="file" accept="application/json" hidden></label>`)}`)}
     ${settingsSection("Support",`${settingsRow("Send feedback",`<a class="button subtle" href="mailto:fountainofyouthxs@gmail.com?subject=Bridge%20Feedback">Email</a>`)}${settingsRow("Report a bug",`<a class="button subtle" href="mailto:fountainofyouthxs@gmail.com?subject=Bridge%20Bug%20Report">Email</a>`)}`)}
@@ -368,8 +479,8 @@ function contactModal(id) {
   return `<div class="modal-backdrop" id="contactBackdrop"><section class="modal wide" role="dialog" aria-modal="true" aria-labelledby="contactTitle"><header class="modal-head"><div><span class="eyebrow">${escapeHTML(c.role)}</span><h2 id="contactTitle">${escapeHTML(c.fullName)}</h2></div><button class="icon-button close-modal" aria-label="Close">${icons.close}</button></header><div class="modal-body"><div class="grid detail-grid">
     <div><section class="card glass"><form id="editContactForm"><div class="grid form-grid">${field("Full name",`<input name="fullName" value="${escapeHTML(c.fullName)}" required>`)}${field("Phone",`<input name="phoneNumber" value="${escapeHTML(c.phoneNumber)}">`)}${field("Role",`<select name="role" id="editRole"><option ${c.role==="Prospect"?"selected":""}>Prospect</option><option ${c.role==="Customer"?"selected":""}>Customer</option></select>`)}${field("Interest",`<select name="interestLevel">${INTERESTS.map(x=>`<option ${c.interestLevel===x?"selected":""}>${x}</option>`).join("")}</select>`)}${field("Judgement",`<select name="judgement"><option ${c.judgement==="Good Fit"?"selected":""}>Good Fit</option><option ${c.judgement==="Not Good Fit"?"selected":""}>Not Good Fit</option></select>`)}${field("Conversation type",`<select name="conversationType">${CONVERSATION_TYPES.map(x=>`<option ${c.conversationType===x?"selected":""}>${x}</option>`).join("")}</select>`)}${field("What I know",`<textarea name="personalInfo">${escapeHTML(c.personalInfo)}</textarea>`,"full")}</div><span class="eyebrow">Standalone activity</span><div class="checks tracking-checks">${editStageCheck(c,"MSA","Made Aware")}${editStageCheck(c,"DTM","Drop The Message")}</div><span class="eyebrow">Pipeline · optional</span><div class="checks tracking-checks" id="editPipelineChecks">${PIPELINES[c.role].map(stage=>editStageCheck(c,stage,stageTitle(stage))).join("")}</div><label class="check-tile filtered-out-toggle"><input type="checkbox" name="isFilteredOut" ${c.isFilteredOut?"checked":""}><span><strong>Filtered out / no-go</strong><br><small class="muted">Only enable this when you intentionally remove this person from the opportunity process.</small></span></label><div class="form-actions"><button class="button primary" type="submit">Save changes</button></div></form></section>
     <section class="card glass stack-card"><h2>Conversation History</h2><form id="addLogForm" class="stack-card"><div class="grid form-grid">${field("Note or activity",'<textarea name="notes" required placeholder="Log what you learned or discussed"></textarea>',"full")}${field("Type",`<select name="type">${CONVERSATION_TYPES.map(x=>`<option>${x}</option>`).join("")}</select>`)}${field("Date",`<input name="conversationDate" type="date" max="${todayInput()}" value="${todayInput()}">`)}</div><p class="muted">Contact notes do not increase the Conversations metric. Only Add New creates a counted conversation.</p><button class="button" type="submit">${icons.plus}Add note</button></form><div class="timeline timeline-list">${renderLogs(c)}</div></section></div>
-    <aside><section class="card glass"><h2>Follow-Up</h2>${active?`<div class="followup-summary"><span class="pill ${new Date(active.dueDate)<new Date()?"danger":"accent"}">${fmtDateTime(active.dueDate)}</span><p>${escapeHTML(active.note||"Follow up")}</p></div><button class="button danger" id="removeFollowUp">${icons.trash}Remove follow-up</button>`:`<p class="muted">No follow-up set.</p>`}<form id="setFollowUpForm" class="followup-form">${field(active?"Replace with":"Set follow-up",'<input name="dueDate" type="datetime-local" required>')}<button class="button" type="submit">Set reminder</button></form></section>
-    <section class="card glass stack-card"><h2>Place Met</h2><p>${c.placeName?escapeHTML(c.placeName):'<span class="muted">No place saved</span>'}</p></section>
+    <aside><section class="card glass"><h2>Follow-Up</h2>${active?`<div class="followup-summary"><span class="pill ${new Date(active.dueDate)<new Date()?"danger":"accent"}">${fmtDateTime(active.dueDate)}</span><p>${escapeHTML(active.note||"Follow up")}</p></div><div class="followup-actions"><button class="button primary" id="completeFollowUp">${icons.check}Complete</button><button class="button danger" id="removeFollowUp">${icons.trash}Remove</button></div>`:`<p class="muted">No follow-up set.</p>`}<form id="setFollowUpForm" class="followup-form">${field(active?"Replace with":"Set follow-up",'<input name="dueDate" type="datetime-local" required>')}<button class="button" type="submit">Set reminder</button></form></section>
+    <section class="card glass stack-card"><h2>Place Met</h2><p class="contact-place">${c.placeName?`${escapeHTML(c.placeName)}${state.places.find(place=>place.id===c.placeId)?.isFavorite?`<span class="favorite-star" role="img" aria-label="Favorite place" title="Favorite place">${icons.star}</span>`:""}`:'<span class="muted">No place saved</span>'}</p></section>
     ${c.archivedAt?`<section class="card glass stack-card"><h2>Archived Contact</h2><p class="muted">Archived ${fmtDate(c.archivedAt,{month:"short",day:"numeric",year:"numeric"})}. History remains in Analytics.</p><button class="button" id="restoreContact">Restore to active contacts</button></section>`:""}<div class="danger-zone"><button class="button danger" id="deleteContact">${icons.trash}Delete contact</button></div></aside></div></div></section></div>`;
 }
 function editStageCheck(c,stage,title){return `<label class="check-tile"><input type="checkbox" name="stage_${stage.replace("/","")}" value="${stage}" ${c.stages?.[stage]?"checked":""}><span><strong>${stage}</strong><br><small class="muted">${title}</small></span></label>`;}
@@ -379,9 +490,10 @@ function bindCommonEvents(){
   $$('[data-page]').forEach(button=>button.addEventListener('click',()=>{ui.page=button.dataset.page;ui.detailId=null;window.scrollTo({top:0,left:0,behavior:'auto'});render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'auto'}));}));
   $$('[data-contact-id]').forEach(button=>button.addEventListener('click',()=>{ui.detailId=button.dataset.contactId;render();}));
   $('.close-modal')?.addEventListener('click',()=>{ui.settingsOpen=false;ui.detailId=null;render();});
+  $('#viewAchievements')?.addEventListener('click',()=>{ui.achievementsOpen=true;render();});
   $('#settingsBackdrop')?.addEventListener('click',event=>{if(event.target.id==='settingsBackdrop'){ui.settingsOpen=false;render();}});
   $('#contactBackdrop')?.addEventListener('click',event=>{if(event.target.id==='contactBackdrop'){ui.detailId=null;render();}});
-  document.onkeydown=event=>{if(event.key==='Escape'&&(ui.settingsOpen||ui.detailId)){ui.settingsOpen=false;ui.detailId=null;render();}};
+  document.onkeydown=event=>{if(event.key==='Escape'&&(ui.settingsOpen||ui.achievementsOpen||ui.detailId)){ui.settingsOpen=false;ui.achievementsOpen=false;ui.detailId=null;render();}};
 }
 
 function bindPageEvents(){
@@ -415,7 +527,8 @@ function handleAddContact(event){
 
 function bindSettingsEvents(){
   $$('.accent-dot').forEach(button=>button.addEventListener('click',()=>{state.settings.accent=button.dataset.accent;applyAppearance();render();}));
-  $('#settingsForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);state.settings={...state.settings,name:String(f.get('name')||''),businessName:String(f.get('businessName')||''),dailyGoal:Number(f.get('dailyGoal'))||5,weeklyGoal:Number(f.get('weeklyGoal'))||25,monthlyGoal:Number(f.get('monthlyGoal'))||100,defaultFollowUpDays:Number(f.get('defaultFollowUpDays'))||2,weekStart:Number(f.get('weekStart'))||0,theme:String(f.get('theme')),compact:f.has('compact'),autoArchiveInactive:f.has('autoArchiveInactive')};const archived=archiveInactiveContacts(state.contacts,state.settings.autoArchiveInactive);applyAppearance();queueSave(archived?`${archived} inactive contact${archived===1?'':'s'} archived`:'Settings saved');ui.settingsOpen=false;render();});
+  $('#requestNotifications')?.addEventListener('click',async()=>{if(!notificationsSupported())return;const permission=await Notification.requestPermission();if(permission==='granted')state.settings.notificationsEnabled=true;queueSave(permission==='granted'?'Notifications enabled':'Notification permission was not enabled');render();startReminderChecks();});
+  $('#settingsForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);state.settings={...state.settings,name:String(f.get('name')||''),businessName:String(f.get('businessName')||''),dailyGoal:Number(f.get('dailyGoal'))||5,weeklyGoal:Number(f.get('weeklyGoal'))||25,monthlyGoal:Number(f.get('monthlyGoal'))||100,defaultFollowUpDays:Number(f.get('defaultFollowUpDays'))||2,weekStart:Number(f.get('weekStart'))||0,theme:String(f.get('theme')),compact:f.has('compact'),autoArchiveInactive:f.has('autoArchiveInactive'),notificationsEnabled:f.has('notificationsEnabled')&&notificationPermission()==='granted',followUpNotifications:f.has('followUpNotifications'),dailyReminderEnabled:f.has('dailyReminderEnabled'),dailyReminderTime:String(f.get('dailyReminderTime')||'09:00')};const archived=archiveInactiveContacts(state.contacts,state.settings.autoArchiveInactive);applyAppearance();queueSave(archived?`${archived} inactive contact${archived===1?'':'s'} archived`:'Settings saved');ui.settingsOpen=false;render();startReminderChecks();});
   $('#exportBackup')?.addEventListener('click',()=>downloadFile(`bridge-backup-${todayInput()}.json`,JSON.stringify(state,null,2),'application/json'));
   $('#exportCSV')?.addEventListener('click',()=>{const rows=[['Name','Phone','Role','Interest','Judgement','Conversation Type','Place','Date First Met','Pipeline'],...state.contacts.map(c=>[c.fullName,c.phoneNumber,c.role,c.interestLevel,c.judgement,c.conversationType,c.placeName,c.dateFirstMet,stageFor(c)])];downloadFile(`bridge-contacts-${todayInput()}.csv`,rows.map(r=>r.map(csvCell).join(',')).join('\n'),'text/csv');});
   $('#importBackup')?.addEventListener('change',async event=>{const file=event.target.files?.[0];if(!file)return;try{const imported=normalizeState(JSON.parse(await file.text()));if(!confirm(`Restore ${imported.contacts.length} contacts and replace current Bridge data?`))return;state=imported;applyAppearance();queueSave('Backup restored');ui.settingsOpen=false;render();}catch{showToast('That backup file could not be read');}});
@@ -430,6 +543,7 @@ function bindContactModalEvents(){
   $('#addLogForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);c.conversations.push({id:uid(),type:String(f.get('type')),interestLevel:c.interestLevel,notes:String(f.get('notes')).trim(),createdAt:nowISO(),conversationDate:`${f.get('conversationDate')}T12:00:00`,isCountedConversation:false});c.updatedAt=nowISO();queueSave('Note added');render();});
   $$('.delete-log').forEach(button=>button.addEventListener('click',()=>{if(!confirm('Delete this conversation log? The contact will remain.'))return;c.conversations=c.conversations.filter(log=>log.id!==button.dataset.logId);c.updatedAt=nowISO();queueSave('Log deleted');render();}));
   $('#setFollowUpForm')?.addEventListener('submit',event=>{event.preventDefault();const due=new FormData(event.currentTarget).get('dueDate');if(!due)return;c.followUps=c.followUps.filter(f=>f.completedAt);c.followUps.push({id:uid(),dueDate:new Date(String(due)).toISOString(),completedAt:null,note:'Follow up',createdAt:nowISO()});c.updatedAt=nowISO();queueSave('Follow-up set');render();});
+  $('#completeFollowUp')?.addEventListener('click',()=>{const active=c.followUps.filter(f=>!f.completedAt).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate))[0];if(!active)return;active.completedAt=nowISO();c.updatedAt=nowISO();queueSave('Follow-up completed');render();});
   $('#removeFollowUp')?.addEventListener('click',()=>{if(!confirm('Remove this follow-up?'))return;c.followUps=c.followUps.filter(f=>f.completedAt);c.updatedAt=nowISO();queueSave('Follow-up removed');render();});
   $('#restoreContact')?.addEventListener('click',()=>{restoreContact(c,nowISO());ui.archiveFilter='Active';queueSave('Contact restored');render();});
   $('#deleteContact')?.addEventListener('click',()=>{if(!confirm(`Delete ${c.fullName}? This cannot be undone.`))return;state.contacts=state.contacts.filter(x=>x.id!==c.id);ui.detailId=null;queueSave('Contact deleted');render();});
