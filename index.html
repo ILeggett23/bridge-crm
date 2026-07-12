@@ -11,13 +11,15 @@
     <meta name="description" content="Bridge CRM for prospecting, relationships, follow-ups, and pipeline tracking." />
     <title>Bridge CRM</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="./handshake_logo.png" />
-    <link rel="stylesheet" href="./styles.css?v=15" data-bridge-styles />
+    <link rel="icon" type="image/png" sizes="192x192" href="./bridge-icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <link rel="stylesheet" href="./styles.css?v=16" data-bridge-styles />
   </head>
   <body>
-    <div id="app"><div class="boot"><div class="brand-mark">B</div><strong>Bridge</strong></div></div>
+    <div id="app"><div class="boot"><img class="brand-mark" src="./bridge-icon-192.png" alt="" /><strong>Bridge</strong></div></div>
     <div id="toast" role="status" aria-live="polite"></div>
     <script src="./contact-logic.js?v=15"></script>
-    <script type="module" src="./bridge.js?v=15" data-bridge-app></script>
+    <script src="./engagement-logic.js?v=16"></script>
+    <script type="module" src="./bridge.js?v=16" data-bridge-app></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
-const CACHE = "bridge-app-v14";
+const CACHE = "bridge-app-v16";
 const ROOT = new URL("./", self.location.href).href;
-const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("contact-logic.js", ROOT).href, new URL("bridge.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("handshake_logo.png", ROOT).href];
+const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("contact-logic.js", ROOT).href, new URL("engagement-logic.js", ROOT).href, new URL("bridge.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("bridge-icon-192.png", ROOT).href, new URL("bridge-icon-512.png", ROOT).href, new URL("apple-touch-icon.png", ROOT).href];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -18,4 +18,14 @@ self.addEventListener("fetch", event => {
     caches.open(CACHE).then(cache => cache.put(event.request, copy));
     return response;
   }).catch(() => caches.match(event.request).then(response => response || caches.match(ROOT))));
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "./", ROOT).href;
+  event.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then(windows => {
+    const existing = windows.find(client => new URL(client.url).origin === new URL(target).origin);
+    if (existing) return existing.navigate(target).then(client => client.focus());
+    return clients.openWindow(target);
+  }));
 });
