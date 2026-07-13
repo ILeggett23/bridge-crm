@@ -159,9 +159,9 @@ a { color: inherit; }
 .field.full { grid-column: 1 / -1; }
 .field label, .field > span { font-size: 12px; font-weight: 720; color: var(--muted); }
 .field input, .field select, .field textarea { width: 100%; min-width: 0; min-height: 46px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 13px; outline: 0; background: rgba(246, 248, 250, .82); }
-.field input[type="date"], .field input[type="datetime-local"], .date-control { display: block; width: 100%; min-width: 0 !important; max-width: 100%; height: 46px; min-height: 46px; padding-block: 0; line-height: 1.2; box-sizing: border-box; overflow: hidden; -webkit-appearance: none; appearance: none; }
-input[type="date"]::-webkit-date-and-time-value, input[type="datetime-local"]::-webkit-date-and-time-value { display: flex; min-width: 0; height: 100%; margin: 0; align-items: center; line-height: normal; text-align: left; }
-input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit-datetime-edit { display: flex; min-width: 0; height: 100%; padding: 0; align-items: center; line-height: normal; }
+.field input[type="date"], .field input[type="datetime-local"], .field input[type="month"], .date-control { display: block; width: 100%; min-width: 0 !important; max-width: 100%; height: 46px; min-height: 46px; padding-block: 0; line-height: 1.2; box-sizing: border-box; overflow: hidden; -webkit-appearance: none; appearance: none; }
+input[type="date"]::-webkit-date-and-time-value, input[type="datetime-local"]::-webkit-date-and-time-value, input[type="month"]::-webkit-date-and-time-value { display: flex; min-width: 0; height: 100%; margin: 0; align-items: center; line-height: normal; text-align: left; }
+input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit-datetime-edit, input[type="month"]::-webkit-datetime-edit { display: flex; min-width: 0; height: 100%; padding: 0; align-items: center; line-height: normal; }
 .field textarea { min-height: 104px; resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: rgba(var(--accent-rgb), .65); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .1); }
 .checks { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
@@ -383,7 +383,7 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
   .button { min-height: 44px; }
   .icon-button { width: 44px; height: 44px; min-width: 44px; border-radius: 14px; }
   .field input, .field select, .field textarea, .date-control, .settings-row input:not([type=checkbox]), .settings-row select { min-height: 48px; font-size: 16px; }
-  .field input[type="date"], .field input[type="datetime-local"], .date-control { height: 48px; min-height: 48px; }
+  .field input[type="date"], .field input[type="datetime-local"], .field input[type="month"], .date-control { height: 48px; min-height: 48px; }
   .contact-card { min-height: 82px; }
   .mini-row { flex-wrap: wrap; }
   .mini-row .row-end { flex: 1 1 100%; min-width: 0; margin-left: 60px; text-align: left; }
@@ -457,7 +457,7 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
 @supports (-webkit-touch-callout: none) {
   @media (max-width: 1024px), (max-height: 500px) {
     input, select, textarea { font-size: 16px; }
-    .field input[type="date"], .field input[type="datetime-local"], .date-control { width: -webkit-fill-available !important; max-width: -webkit-fill-available !important; }
+    .field input[type="date"], .field input[type="datetime-local"], .field input[type="month"], .date-control { width: -webkit-fill-available !important; max-width: -webkit-fill-available !important; }
   }
 }
 
