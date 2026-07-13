@@ -76,6 +76,12 @@ a { color: inherit; }
 .stat-value { font-size: 34px; font-weight: 780; line-height: 1; }
 .stat > div:last-child { display: grid; gap: var(--space-1); }
 .dashboard-grid { margin-top: 16px; grid-template-columns: minmax(0, 1.5fr) minmax(260px, .8fr); }
+.dashboard-followups { align-self: start; }
+.followup-wheel { --followup-row-height: 88px; max-height: calc(var(--followup-row-height) * 3); overflow-y: auto; overscroll-behavior: contain; scroll-snap-type: y proximity; scrollbar-color: rgba(var(--accent-rgb), .55) transparent; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.followup-wheel::-webkit-scrollbar { width: 6px; }
+.followup-wheel::-webkit-scrollbar-track { background: transparent; }
+.followup-wheel::-webkit-scrollbar-thumb { border-radius: 999px; background: rgba(var(--accent-rgb), .48); }
+.followup-wheel .mini-row { height: var(--followup-row-height); min-height: var(--followup-row-height); padding: 10px 4px 10px 0; scroll-snap-align: start; }
 .goal-row { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .goal-row > * { min-width: 0; }
 .goal-copy { display: grid; gap: var(--space-2); }
@@ -296,6 +302,10 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
   .goal-row .button span { display: none; }
   .progress { margin: 15px 0 8px; }
   .dashboard-grid, .form-grid, .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .followup-wheel { --followup-row-height: 92px; }
+  .followup-wheel .mini-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 11px; align-content: center; }
+  .followup-wheel .avatar { grid-row: 1 / 3; }
+  .followup-wheel .row-end { grid-column: 2; min-width: 0; margin: 0; text-align: left; }
   .toolbar { position: relative; top: auto; margin-bottom: 12px; padding: 7px; grid-template-columns: minmax(0, 1fr); gap: 7px; border-radius: 18px; }
   .toolbar .search { grid-column: 1 / -1; grid-row: 1; }
   .toolbar .segmented { grid-column: 1; grid-row: 2; }
@@ -358,6 +368,8 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
   .contact-card { min-height: 82px; }
   .mini-row { flex-wrap: wrap; }
   .mini-row .row-end { flex: 1 1 100%; min-width: 0; margin-left: 60px; text-align: left; }
+  .followup-wheel .mini-row { flex-wrap: nowrap; }
+  .followup-wheel .row-end { margin-left: 0; }
   .settings-row { align-items: flex-start; flex-direction: column; gap: 8px; }
   .settings-row input:not([type=checkbox]), .settings-row select, .settings-row > .button, .settings-row > label.button { width: 100%; max-width: none; }
   .settings-row input[type=checkbox] { align-self: flex-end; margin-top: -32px; }
