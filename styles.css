@@ -162,9 +162,6 @@ a { color: inherit; }
 .form-shell { width: 100%; max-width: 850px; }
 .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .full { grid-column: 1 / -1; }
-.import-contact-row { min-width: 0; padding-bottom: 4px; display: flex; align-items: center; gap: 12px; }
-.import-contact-actions { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-.import-contact-row .muted { font-size: 12px; line-height: 1.35; }
 .form-section { margin-bottom: 16px; }
 .form-section > h2 { margin: 0 0 12px 4px; font-size: 16px; }
 .field { width: 100%; min-width: 0; max-width: 100%; display: grid; gap: 6px; contain: inline-size; }
@@ -232,10 +229,6 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
 .read-only-control { min-height: 46px; padding: 11px 13px; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-muted); color: var(--muted); }
 .call-log-modal { width: min(680px, 100%); }
 .call-log-form > .muted { margin: 14px 0 0; line-height: 1.45; }
-.phone-choice-modal { width: min(460px, 100%); }
-.phone-choice-list { display: grid; gap: 10px; }
-.phone-choice { width: 100%; justify-content: space-between; text-align: left; }
-.phone-choice span { color: var(--muted); }
 .history-actions, .log-actions, .log-title { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .history-actions { flex-wrap: wrap; justify-content: flex-end; }
 .history-actions .button { min-height: 40px; padding: 8px 11px; }
@@ -422,8 +415,6 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
   .field input, .field select, .field textarea, .date-control, .settings-row input:not([type=checkbox]), .settings-row select { min-height: 48px; font-size: 16px; }
   .field input[type="date"], .field input[type="datetime-local"], .field input[type="month"], .date-control { height: 48px; min-height: 48px; }
   .contact-card { min-height: 82px; }
-  .import-contact-row { align-items: stretch; flex-direction: column; }
-  .import-contact-row .button { width: 100%; }
   .mini-row { flex-wrap: wrap; }
   .mini-row .row-end { flex: 1 1 100%; min-width: 0; margin-left: 60px; text-align: left; }
   .followup-wheel .mini-row { flex-wrap: nowrap; }
