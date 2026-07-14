@@ -2,7 +2,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const { archiveInactiveContacts, hasConversationInRange, latestConversationTime, restoreContact, setFilteredOut, sortContacts } = globalThis.BridgeLogic;
 const { dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, evaluateAchievements } = globalThis.BridgeEngagement;
-const { analyticsRange, inAnalyticsRange } = globalThis.BridgeAnalytics;
+const { analyticsRange, inAnalyticsRange, uniquePhoneCaptures } = globalThis.BridgeAnalytics;
 const bridgeStyles = $$('link[data-bridge-styles]');
 if (bridgeStyles.length > 1) {
   const styleVersion = link => Number(new URL(link.href).searchParams.get("v")) || 0;
@@ -83,6 +83,7 @@ const icons = {
   check: icon('<path d="m5 12 4 4L19 6"/>'),
   circleCheck: icon('<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>'),
   userPlus: icon('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M16 11h6"/>'),
+  contactCard: icon('<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2.5"/><path d="M5.5 16a3.5 3.5 0 0 1 7 0M15 8h3M15 12h3M15 16h2"/>'),
   flag: icon('<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>'),
   fire: icon('<path d="M12 22c4.4 0 8-3.6 8-8 0-3-1.5-5.4-4.5-7.5.2 3-1.5 4.5-3 5-1-4-3.5-7-6-8.5.5 4-2.5 6-2.5 10.5C4 18.2 7.6 22 12 22Z"/>'),
   warning: icon('<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>'),
@@ -129,7 +130,7 @@ const defaultState = () => ({
     dailyReminderEnabled: true,
     dailyReminderTime: "09:00"
   },
-  meta: { version: 3, updatedAt: nowISO(), achievements: {}, dailyReminderSentDate: null }
+  meta: { version: 4, updatedAt: nowISO(), achievements: {}, dailyReminderSentDate: null }
 });
 
 let state = defaultState();
@@ -146,15 +147,20 @@ function normalizeState(raw) {
     const filteredOutAt = contact.filteredOutAt || contact.explicitFilteredOutAt || null;
     const stageDates = contact.stageDates || {};
     const stageEvents = Array.isArray(contact.stageEvents) ? contact.stageEvents.map(event => ({ ...event, id: event.id || uid(), occurredAt: event.occurredAt || event.date || contact.updatedAt || contact.createdAt || nowISO() })) : ALL_STAGES.filter(stage => Boolean(contact.stages?.[stage]?.isComplete ?? contact.stages?.[stage])).map(stage => ({ id: uid(), stage, occurredAt: stageDates[stage] || contact.updatedAt || contact.createdAt || nowISO() }));
+    const conversations = Array.isArray(contact.conversations) ? contact.conversations.map(log => ({ ...log, id: log.id || uid(), createdAt: log.createdAt || log.conversationDate || contact.updatedAt || contact.createdAt || nowISO(), conversationDate: log.conversationDate || log.createdAt || contact.updatedAt || contact.createdAt || nowISO(), isCountedConversation: Boolean(log.isCountedConversation) })) : [];
+    const firstCountedConversation = conversations.filter(log => log.isCountedConversation).sort((a, b) => dateOnly(a.conversationDate || a.createdAt) - dateOnly(b.conversationDate || b.createdAt))[0];
+    const inferredCapturedPhone = String(contact.capturedPhoneNumber || contact.phoneNumber || "").trim();
+    const phoneCapturedAt = contact.phoneCapturedAt || (inferredCapturedPhone && firstCountedConversation ? (firstCountedConversation.conversationDate || firstCountedConversation.createdAt) : null);
     return {
       id: contact.id || uid(), fullName: contact.fullName || "Unnamed Contact", phoneNumber: contact.phoneNumber || "", role: contact.role === "Customer" ? "Customer" : "Prospect",
+      capturedPhoneNumber: phoneCapturedAt ? inferredCapturedPhone : "", phoneCapturedAt,
       judgement: ["Good Fit", "Not Good Fit"].includes(contact.judgement || contact.category) ? (contact.judgement || contact.category) : "Good Fit",
       interestLevel: INTERESTS.includes(contact.interestLevel) ? contact.interestLevel : "Unsure", conversationType: CONVERSATION_TYPES.includes(contact.conversationType) ? contact.conversationType : "Prospecting",
       placeId: contact.placeId || contact.placeID || null, placeName: contact.placeName || "", dateFirstMet: contact.dateFirstMet || contact.createdAt || nowISO(), personalInfo: contact.personalInfo || "",
       isFilteredOut: Boolean(contact.isFilteredOut && filteredOutAt), filteredOutAt, checkBackDate: contact.checkBackDate || null,
       archivedAt: contact.archivedAt || null, archiveReason: contact.archiveReason || null,
       stages: Object.fromEntries(ALL_STAGES.map(stage => [stage, Boolean(contact.stages?.[stage]?.isComplete ?? contact.stages?.[stage])] )),
-      stageDates, stageEvents, followUps: Array.isArray(contact.followUps) ? contact.followUps.map(item => ({ ...item, id: item.id || uid(), createdAt: item.createdAt || contact.updatedAt || contact.createdAt || nowISO() })) : [], notes: Array.isArray(contact.notes) ? contact.notes : [], conversations: Array.isArray(contact.conversations) ? contact.conversations.map(log => ({ ...log, id: log.id || uid(), createdAt: log.createdAt || log.conversationDate || contact.updatedAt || contact.createdAt || nowISO(), conversationDate: log.conversationDate || log.createdAt || contact.updatedAt || contact.createdAt || nowISO(), isCountedConversation: Boolean(log.isCountedConversation) })) : [],
+      stageDates, stageEvents, followUps: Array.isArray(contact.followUps) ? contact.followUps.map(item => ({ ...item, id: item.id || uid(), createdAt: item.createdAt || contact.updatedAt || contact.createdAt || nowISO() })) : [], notes: Array.isArray(contact.notes) ? contact.notes : [], conversations,
       createdAt: contact.createdAt || nowISO(), updatedAt: contact.updatedAt || contact.createdAt || nowISO()
     };
   }) : [];
@@ -451,12 +457,13 @@ function analyticsDateControls() {
 
 function renderAnalytics() {
   const range=rangeForAnalytics(), logs=countedConversations(range), contacts=state.contacts.filter(c=>inRange(c.dateFirstMet,range));
+  const capturedContacts=uniquePhoneCaptures(state.contacts,range);
   const stageCounts=Object.fromEntries(ALL_STAGES.map(stage=>[stage,state.contacts.flatMap(contact=>contact.stageEvents||[]).filter(event=>event.stage===stage&&inRange(event.occurredAt,range)).length]));
   const interest=Object.fromEntries(INTERESTS.map(level=>[level,contacts.filter(c=>c.interestLevel===level).length]));
   const maxInterest=Math.max(1,...Object.values(interest));
   return `${pageHead("Analytics", "See the activity that creates momentum.")}
     <div class="card glass section-card analytics-period-card"><div class="period-controls"><div class="segmented analytics-segmented" aria-label="Analytics period">${["day","week","month","custom"].map(mode=>`<button type="button" data-range="${mode}" class="${ui.analyticsRange===mode?"active":""}" aria-pressed="${ui.analyticsRange===mode}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join("")}</div><div class="analytics-period-detail">${analyticsDateControls()}<strong class="period-label">${range.label}</strong></div></div></div>
-    <div class="grid stats-grid">${statCard("chart",logs.length,"Conversations")}${statCard("people",contacts.filter(c=>c.role==="Prospect").length,"Prospects")}${statCard("userPlus",contacts.filter(c=>c.role==="Customer").length,"Customers")}${statCard("flag",stageCounts.LA,"Launches")}</div>
+    <div class="grid stats-grid">${statCard("chart",logs.length,"Conversations")}${statCard("contactCard",capturedContacts.length,"Contacts")}${statCard("people",contacts.filter(c=>c.role==="Prospect").length,"Prospects")}${statCard("target",contacts.filter(c=>c.role==="Customer").length,"Prospective Customers")}</div>
     <div class="grid analytics-grid section-gap"><div class="card glass"><h2>Pipeline Activity</h2><div class="metric-bars">${["MSA","DTM","PQI","QI/P","FUP","LA","CNA"].map(stage=>metricBar(stage,stageCounts[stage],Math.max(1,...Object.values(stageCounts)))).join("")}</div></div><div class="card glass"><h2>Interest Breakdown</h2><div class="metric-bars">${INTERESTS.map(level=>metricBar(level,interest[level],maxInterest)).join("")}</div></div><div class="card glass"><h2>Conversation Mix</h2><div class="metric-bars">${CONVERSATION_TYPES.map(type=>metricBar(type,logs.filter(log=>log.type===type).length,Math.max(1,logs.length))).join("")}</div></div><div class="card glass"><h2>Follow-Up Completion</h2>${followUpAnalytics(range)}</div></div>`;
 }
 function metricBar(label,value,max){return `<div><div class="metric-label"><span>${label}</span><strong>${value}</strong></div><div class="bar"><span style="width:${value/Math.max(1,max)*100}%"></span></div></div>`;}
@@ -559,7 +566,7 @@ function handleAddContact(event){
   if(newPlaceName){let place=state.places.find(p=>p.name.toLowerCase()===newPlaceName.toLowerCase());if(!place){place={id:uid(),name:newPlaceName,isFavorite:form.has('favoritePlace'),createdAt:nowISO()};state.places.push(place);}else if(form.has('favoritePlace'))place.isFavorite=true;placeId=place.id;placeName=place.name;} else if(placeId){placeName=state.places.find(p=>p.id===placeId)?.name||'';}
   const role=String(form.get('role')); const conversationDate=`${form.get('conversationDate')}T12:00:00`; const stages=Object.fromEntries(ALL_STAGES.map(stage=>[stage,false])); const stageDates={};
   for(const stage of ['MSA','DTM',...(PIPELINES[role]||[])]){if(form.has(`stage_${stage.replace('/','')}`)){stages[stage]=true;stageDates[stage]=conversationDate;}}
-  const notes=String(form.get('notes')||'').trim(); const contact={id:uid(),fullName,phoneNumber:String(form.get('phoneNumber')||''),role,judgement:String(form.get('judgement')),interestLevel:String(form.get('interestLevel')),conversationType:String(form.get('conversationType')),placeId,placeName,dateFirstMet:conversationDate,personalInfo:'',isFilteredOut:false,filteredOutAt:null,checkBackDate:form.get('checkBackDate')?new Date(String(form.get('checkBackDate'))).toISOString():null,archivedAt:null,archiveReason:null,stages,stageDates,stageEvents:Object.entries(stageDates).map(([stage,occurredAt])=>({id:uid(),stage,occurredAt})),followUps:[],notes:[],conversations:[{id:uid(),type:String(form.get('conversationType')),interestLevel:String(form.get('interestLevel')),notes,createdAt:nowISO(),conversationDate,isCountedConversation:true}],createdAt:nowISO(),updatedAt:nowISO()};
+  const notes=String(form.get('notes')||'').trim(); const phoneNumber=String(form.get('phoneNumber')||'').trim(); const contact={id:uid(),fullName,phoneNumber,capturedPhoneNumber:phoneNumber,phoneCapturedAt:phoneNumber?conversationDate:null,role,judgement:String(form.get('judgement')),interestLevel:String(form.get('interestLevel')),conversationType:String(form.get('conversationType')),placeId,placeName,dateFirstMet:conversationDate,personalInfo:'',isFilteredOut:false,filteredOutAt:null,checkBackDate:form.get('checkBackDate')?new Date(String(form.get('checkBackDate'))).toISOString():null,archivedAt:null,archiveReason:null,stages,stageDates,stageEvents:Object.entries(stageDates).map(([stage,occurredAt])=>({id:uid(),stage,occurredAt})),followUps:[],notes:[],conversations:[{id:uid(),type:String(form.get('conversationType')),interestLevel:String(form.get('interestLevel')),notes,createdAt:nowISO(),conversationDate,isCountedConversation:true}],createdAt:nowISO(),updatedAt:nowISO()};
   if(form.get('followUpDate'))contact.followUps.push({id:uid(),dueDate:new Date(String(form.get('followUpDate'))).toISOString(),completedAt:null,note:'Follow up',createdAt:nowISO()});
   if(form.get('checkBackDate'))contact.followUps.push({id:uid(),dueDate:new Date(String(form.get('checkBackDate'))).toISOString(),completedAt:null,note:'Check back down the line',createdAt:nowISO()});
   state.contacts.unshift(contact); queueSave('Conversation saved'); ui.page='contacts'; render();
