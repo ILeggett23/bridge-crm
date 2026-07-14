@@ -79,6 +79,8 @@
   }
 
   function normalizePhone(value) {
+    const identity = global.BridgeCommunication?.phoneIdentity?.(value);
+    if (identity) return identity.startsWith("1") && identity.length === 11 ? identity.slice(1) : identity;
     const digits = String(value || "").replace(/\D/g, "");
     return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
   }
