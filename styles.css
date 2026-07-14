@@ -229,19 +229,25 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
 .read-only-control { min-height: 46px; padding: 11px 13px; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-muted); color: var(--muted); }
 .call-log-modal { width: min(680px, 100%); }
 .call-log-form > .muted { margin: 14px 0 0; line-height: 1.45; }
-.history-actions, .log-actions, .log-title { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.history-actions, .log-actions { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .history-actions { flex-wrap: wrap; justify-content: flex-end; }
 .history-actions .button { min-height: 40px; padding: 8px 11px; }
-.log-title { align-items: flex-start; }
+.log-title { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: start; gap: 8px; }
+.log-title:not(:has(.log-icon)) { grid-template-columns: minmax(0, 1fr); }
 .log-title > div { min-width: 0; }
+.log-title strong { display: block; line-height: 1.3; overflow-wrap: anywhere; }
+.log-title .muted { margin-top: 2px; line-height: 1.35; overflow-wrap: anywhere; }
 .log-icon { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 11px; color: var(--accent); background: rgba(var(--accent-rgb), .12); }
 .log-icon svg { width: 18px; height: 18px; }
 .timeline { display: grid; gap: 9px; }
 .timeline-list { margin-top: 16px; }
 .log-row { min-width: 0; padding: 14px; border-radius: 15px; background: rgba(238, 242, 245, .75); }
-.log-row-head { min-width: 0; display: flex; justify-content: space-between; gap: 10px; }
+.log-row-head { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px; }
 .log-row-head > div { min-width: 0; }
-.log-row p { overflow-wrap: anywhere; }
+.log-actions { min-width: max-content; align-self: start; justify-content: flex-end; }
+.log-actions .icon-button { width: 42px; height: 42px; min-width: 42px; border-radius: 13px; }
+.log-row > p { margin: 12px 0 0; line-height: 1.45; overflow-wrap: anywhere; }
+.communication-log > p { margin-left: 42px; }
 .followup-summary { margin: 15px 0; }
 .followup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .followup-form { margin-top: 15px; }
@@ -415,6 +421,9 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
   .field input, .field select, .field textarea, .date-control, .settings-row input:not([type=checkbox]), .settings-row select { min-height: 48px; font-size: 16px; }
   .field input[type="date"], .field input[type="datetime-local"], .field input[type="month"], .date-control { height: 48px; min-height: 48px; }
   .contact-card { min-height: 82px; }
+  .log-row { padding: 12px; }
+  .log-row-head { gap: 8px; }
+  .log-actions { gap: 6px; }
   .mini-row { flex-wrap: wrap; }
   .mini-row .row-end { flex: 1 1 100%; min-width: 0; margin-left: 60px; text-align: left; }
   .followup-wheel .mini-row { flex-wrap: nowrap; }
