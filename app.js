@@ -3,7 +3,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const { archiveInactiveContacts, hasConversationInRange, latestConversationTime, restoreContact, setFilteredOut, sortContacts } = globalThis.BridgeLogic;
 const { dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, evaluateAchievements } = globalThis.BridgeEngagement;
 const { analyticsRange, inAnalyticsRange, uniquePhoneCaptures } = globalThis.BridgeAnalytics;
-const { canonicalPhone, phoneIdentity, telHref, smsHref, parseVCard } = globalThis.BridgeCommunication;
+const { canonicalPhone, phoneIdentity, telHref, smsHref } = globalThis.BridgeCommunication;
 const bridgeStyles = $$('link[data-bridge-styles]');
 if (bridgeStyles.length > 1) {
   const styleVersion = link => Number(new URL(link.href).searchParams.get("v")) || 0;
@@ -141,7 +141,7 @@ const defaultState = () => ({
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", archiveFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, contactImportBusy: false, phoneChoices: null, settingsOpen: false, settingsAccentDraft: null, achievementsOpen: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", archiveFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, settingsOpen: false, settingsAccentDraft: null, achievementsOpen: false, saveTimer: null };
 const launchParams = new URLSearchParams(location.search);
 if (["dashboard", "contacts", "add", "followups", "analytics"].includes(launchParams.get("page"))) ui.page = launchParams.get("page");
 if (launchParams.get("contact")) ui.detailId = launchParams.get("contact");
@@ -396,7 +396,7 @@ function offerPendingCommunication() {
 
 function render() {
   const app = $("#app");
-  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.communicationContactId || ui.phoneChoices));
+  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.communicationContactId));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
       <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png" alt="" /><span>Bridge</span></div>
@@ -410,14 +410,13 @@ function render() {
       <div class="nav-spacer"></div><div class="sync-status">${cloudStateAvailable ? "Cloud synced" : "Saved on this device"}</div>
     </aside>
     <main class="main"><section class="page">${renderPage()}</section></main>
-  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}${ui.phoneChoices ? phoneChoiceModal() : ""}`;
+  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}`;
   bindCommonEvents();
   bindPageEvents();
   if (ui.settingsOpen) bindSettingsEvents();
   if (ui.achievementsOpen) bindAchievementEvents();
   if (ui.detailId) bindContactModalEvents();
   if (ui.communicationContactId) bindCommunicationLogEvents();
-  if (ui.phoneChoices) bindPhoneChoiceEvents();
 }
 
 function navButton(page, label, icon) { return `<button class="nav-button ${ui.page === page ? "active" : ""}" data-page="${page}" aria-label="${label}">${icons[icon]}<span>${label}</span></button>`; }
@@ -485,7 +484,6 @@ function renderAdd() {
   return `${pageHead("Add New", "Capture a conversation in under a minute.")}
     <form id="addContactForm" class="form-shell">
       <section class="form-section"><h2>Contact</h2><div class="card glass grid form-grid">
-        <div class="import-contact-row full"><div class="import-contact-actions"><button class="button subtle" id="importContact" type="button">${icons.people}<span>Import from Contacts</span></button><label class="button subtle" for="vcardImport">${icons.contactCard}<span>Import contact card</span></label><input id="vcardImport" type="file" accept=".vcf,text/vcard,text/x-vcard" hidden></div><span class="muted" id="contactImportHelp">Choose a contact where supported, import a .vcf contact card, or enter details manually.</span></div>
         ${field("Full name",'<input name="fullName" required autocomplete="name" placeholder="Full name">')}${field("Phone number",'<input name="phoneNumber" autocomplete="tel" inputmode="tel" placeholder="Optional">')}
         ${field("Conversation date",`<input name="conversationDate" type="date" max="${todayInput()}" value="${todayInput()}" required>`)}${field("Role",`<select name="role" id="newRole"><option>Prospect</option><option>Customer</option></select>`)}
         ${field("Judgement",'<select name="judgement"><option>Good Fit</option><option>Not Good Fit</option></select>')}${field("Interest",`<select name="interestLevel">${INTERESTS.map(x=>`<option ${x==="Unsure"?"selected":""}>${x}</option>`).join("")}</select>`)}
@@ -597,8 +595,6 @@ function communicationLogModal(id) {
   return `<div class="modal-backdrop call-log-backdrop" id="communicationLogBackdrop"><section class="modal call-log-modal" role="dialog" aria-modal="true" aria-labelledby="communicationLogTitle"><header class="modal-head"><div><span class="eyebrow">${heading}</span><h2 id="communicationLogTitle">${escapeHTML(c.fullName)}</h2></div><button class="icon-button close-communication-log" aria-label="Close">${icons.close}</button></header><div class="modal-body"><form id="communicationLogForm" class="call-log-form"><input type="hidden" name="communicationType" value="${type}"><div class="grid form-grid">${field("Date and time",`<input name="conversationDate" type="datetime-local" value="${dateTimeLocalValue(existing?.conversationDate||ui.communicationStartedAt||new Date())}" required>`)}${field("Direction",`<select name="direction">${COMMUNICATION_DIRECTIONS.map(direction=>`<option ${existing?.direction===direction?"selected":""}>${direction}</option>`).join("")}</select>`)}${type==="Call"?field("Duration (minutes)",`<input name="durationMinutes" type="number" min="0" step="1" inputmode="numeric" placeholder="Optional" value="${existing?.durationMinutes||""}">`):""}${field("Outcome",`<select name="outcome">${outcomes.map(outcome=>`<option ${selectedOutcome===outcome?"selected":""}>${outcome}</option>`).join("")}</select>`)}${field(type==="Text"?"What did you discuss?":"What did you talk about?",`<textarea name="notes" placeholder="Add ${type.toLowerCase()} notes">${escapeHTML(existing?.notes||"")}</textarea>`,"full")}${field("Follow-up date and time",'<input name="followUpDate" type="datetime-local">')}${field("Standalone activity",'<select name="standaloneActivity"><option value="">No change</option><option>MSA</option><option>DTM</option></select>')}${field("Current pipeline stage",`<div class="read-only-control">${escapeHTML(current?stageLabel(current):"No stage")}</div>`)}${field("Move to stage",`<select name="pipelineStage"><option value="">No change</option><option value="__clear">Clear pipeline stage</option>${PIPELINES[c.role].map(stage=>`<option value="${escapeHTML(stage)}">${escapeHTML(stageLabel(stage))}</option>`).join("")}</select>`)}</div><p class="muted">Opening Messages does not confirm that a text was sent. Record the actual outcome here after you return. Communication logs never increase the Conversations metric.</p><div class="form-actions"><button class="button close-communication-log" type="button">Cancel</button><button class="button primary" type="submit">${icons.check}${existing?"Save changes":`Save ${type.toLowerCase()}`}</button></div></form></div></section></div>`;
 }
 
-function phoneChoiceModal(){const choice=ui.phoneChoices;if(!choice)return "";return `<div class="modal-backdrop" id="phoneChoiceBackdrop"><section class="modal phone-choice-modal" role="dialog" aria-modal="true" aria-labelledby="phoneChoiceTitle"><header class="modal-head"><div><span class="eyebrow">Choose a number</span><h2 id="phoneChoiceTitle">${escapeHTML(choice.name||"Imported contact")}</h2></div><button class="icon-button close-phone-choice" aria-label="Close">${icons.close}</button></header><div class="modal-body phone-choice-list">${choice.phones.map((phone,index)=>`<button class="button phone-choice" type="button" data-phone-index="${index}"><span>${escapeHTML(phone.label||"Phone")}</span><strong>${escapeHTML(phone.value)}</strong></button>`).join("")}</div></section></div>`;}
-
 function discardContactEdit() {
   if (ui.contactEditing && ui.contactEditDirty && !confirm("Discard your unsaved contact changes?")) return false;
   ui.contactEditing=false;
@@ -616,56 +612,7 @@ function bindCommonEvents(){
   $('#viewAchievements')?.addEventListener('click',()=>{ui.achievementsOpen=true;render();});
   $('#settingsBackdrop')?.addEventListener('click',event=>{if(event.target.id==='settingsBackdrop'){ui.settingsOpen=false;ui.settingsAccentDraft=null;render();}});
   $('#contactBackdrop')?.addEventListener('click',event=>{if(event.target.id==='contactBackdrop'&&closeContactDetail())render();});
-  document.onkeydown=event=>{if(event.key!=='Escape'||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.communicationContactId||ui.phoneChoices))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.phoneChoices){ui.phoneChoices=null;render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.achievementsOpen=false;render();};
-}
-
-function populateImportedContact(name,phoneNumber) {
-  const form=$('#addContactForm'); if(!form)return;
-  const duplicate=phoneNumber&&state.contacts.find(contact=>normalizedPhone(contact.phoneNumber)===normalizedPhone(phoneNumber));
-  if(duplicate){showToast(`${duplicate.fullName} is already in Bridge`);ui.page='contacts';ui.detailId=duplicate.id;render();return;}
-  if(name)form.elements.fullName.value=name;
-  if(phoneNumber)form.elements.phoneNumber.value=phoneNumber;
-  const help=$('#contactImportHelp');if(help)help.textContent='Contact selected. Review the details before saving.';
-}
-
-function chooseImportedPhone(name,phones) {
-  const usable=(phones||[]).filter(phone=>phone?.value);
-  if(!usable.length){populateImportedContact(name,"");showToast('Name imported; this contact has no phone number');return;}
-  if(usable.length===1){populateImportedContact(name,usable[0].value);return;}
-  ui.phoneChoices={name,phones:usable};render();
-}
-
-async function importSingleContact() {
-  const help=$('#contactImportHelp');
-  if(ui.contactImportBusy)return;
-  if(!navigator.contacts?.select){if(help)help.textContent='iPhone Safari does not provide direct Contacts access. Choose a contact card (.vcf) instead.';$('#vcardImport')?.click();return;}
-  ui.contactImportBusy=true;
-  try {
-    const selected=await navigator.contacts.select(['name','tel'],{multiple:false});
-    const picked=selected?.[0]; if(!picked)return;
-    const fullName=String(picked.name?.[0]||'').trim();
-    chooseImportedPhone(fullName,(picked.tel||[]).map((value,index)=>({label:`Phone ${index+1}`,value:String(value).trim()})));
-  } catch(error) {
-    if(error?.name!=='AbortError'&&error?.name!=='NotAllowedError'){showToast('Contact access was unavailable. Import a .vcf card or enter details manually.');if(help)help.textContent='Contact access was unavailable. You can still import a .vcf contact card.';}
-    else if(error?.name==='NotAllowedError'){showToast('Contact access was denied');if(help)help.textContent='Contact access was denied. Import a .vcf card or enter details manually.';}
-  } finally { ui.contactImportBusy=false; }
-}
-
-async function importVCard(event) {
-  const file=event.target.files?.[0];event.target.value="";if(!file)return;
-  try {
-    const contacts=parseVCard(await file.text());
-    if(!contacts.length){showToast('No contact could be read from that file');return;}
-    const picked=contacts[0];chooseImportedPhone(picked.name,picked.phones);
-    if(contacts.length>1)showToast('Imported the first contact from this card');
-  } catch { showToast('That contact card could not be read'); }
-}
-
-function bindPhoneChoiceEvents() {
-  const close=()=>{ui.phoneChoices=null;render();};
-  $$('.close-phone-choice').forEach(button=>button.addEventListener('click',close));
-  $('#phoneChoiceBackdrop')?.addEventListener('click',event=>{if(event.target.id==='phoneChoiceBackdrop')close();});
-  $$('.phone-choice').forEach(button=>button.addEventListener('click',()=>{const choice=ui.phoneChoices;if(!choice)return;const phone=choice.phones[Number(button.dataset.phoneIndex)];const name=choice.name;ui.phoneChoices=null;render();requestAnimationFrame(()=>populateImportedContact(name,phone?.value||""));}));
+  document.onkeydown=event=>{if(event.key!=='Escape'||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.communicationContactId))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.achievementsOpen=false;render();};
 }
 
 function bindPageEvents(){
@@ -679,8 +626,6 @@ function bindPageEvents(){
   $('#clearConversationDates')?.addEventListener('click',()=>{ui.conversationFrom='';ui.conversationTo='';render();});
   $('#sortContacts')?.addEventListener('change',event=>{ui.sort=event.target.value;render();});
   $('#newRole')?.addEventListener('change',event=>{const container=$('#newPipelineChecks');container.innerHTML=roleStageChecks(event.target.value);});
-  $('#importContact')?.addEventListener('click',importSingleContact);
-  $('#vcardImport')?.addEventListener('change',importVCard);
   $('#addContactForm')?.addEventListener('submit',handleAddContact);
   $$('[data-range]').forEach(button=>button.addEventListener('click',()=>{ui.analyticsRange=button.dataset.range;if(ui.analyticsRange==='custom'&&!ui.analyticsCustomStart){ui.analyticsCustomStart=ui.analyticsAnchor;ui.analyticsCustomEnd=ui.analyticsAnchor;}render();}));
   $('#analyticsAnchor')?.addEventListener('change',event=>{ui.analyticsAnchor=event.target.value;render();});
