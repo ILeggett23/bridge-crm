@@ -78,5 +78,26 @@
     return Number.isFinite(date.getTime()) && date >= range.start && date <= range.end;
   }
 
-  global.BridgeAnalytics = Object.freeze({ analyticsRange, dateRangeLabel, inAnalyticsRange });
+  function normalizePhone(value) {
+    const digits = String(value || "").replace(/\D/g, "");
+    return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  }
+
+  function uniquePhoneCaptures(contacts, range = null) {
+    const earliestByPhone = new Map();
+    for (const contact of contacts || []) {
+      const phone = normalizePhone(contact.capturedPhoneNumber || "");
+      const capturedAt = contact.phoneCapturedAt;
+      const capturedDate = parseDate(capturedAt);
+      if (!phone || !capturedAt || !Number.isFinite(capturedDate.getTime())) continue;
+      const current = earliestByPhone.get(phone);
+      if (!current || capturedDate < current.capturedDate) {
+        earliestByPhone.set(phone, { phone, capturedAt, capturedDate, contact });
+      }
+    }
+    const captures = [...earliestByPhone.values()];
+    return range ? captures.filter(capture => inAnalyticsRange(capture.capturedAt, range)) : captures;
+  }
+
+  global.BridgeAnalytics = Object.freeze({ analyticsRange, dateRangeLabel, inAnalyticsRange, normalizePhone, uniquePhoneCaptures });
 })(globalThis);
