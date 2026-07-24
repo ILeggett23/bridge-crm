@@ -92,6 +92,7 @@ const icons = {
   flag: icon('<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>'),
   fire: icon('<path d="M12 22c4.4 0 8-3.6 8-8 0-3-1.5-5.4-4.5-7.5.2 3-1.5 4.5-3 5-1-4-3.5-7-6-8.5.5 4-2.5 6-2.5 10.5C4 18.2 7.6 22 12 22Z"/>'),
   warning: icon('<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>'),
+  clock: icon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
   download: icon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>'),
   close: icon('<path d="M18 6 6 18M6 6l12 12"/>'),
   trash: icon('<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/>'),
@@ -144,10 +145,13 @@ const defaultState = () => ({
 
 let state = defaultState();
 let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", archiveFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, achievementsOpen: false, saveTimer: null };
+let lastRenderedPage = null;
+let lastRenderedContactMode = null;
+let searchRenderTimer = null;
 const launchParams = new URLSearchParams(location.search);
 if (["dashboard", "contacts", "add", "followups", "analytics"].includes(launchParams.get("page"))) ui.page = launchParams.get("page");
 if (launchParams.get("contact")) ui.detailId = launchParams.get("contact");
-const cloudStateAvailable = location.protocol === "https:" && !location.hostname.endsWith("github.io");
+const cloudStateAvailable = document.querySelector('meta[name="bridge-cloud-state"]')?.content === "enabled";
 
 function normalizeState(raw) {
   const base = defaultState();
@@ -222,6 +226,7 @@ async function loadState() {
     syncAchievements(false);
     applyAppearance();
     render();
+    await refreshPushSubscriptionState();
     startReminderChecks();
     return;
   }
@@ -241,6 +246,7 @@ async function loadState() {
   syncAchievements(false);
   applyAppearance();
   render();
+  await refreshPushSubscriptionState();
   startReminderChecks();
 }
 
@@ -256,6 +262,9 @@ function queueSave(message = "Saved") {
   durableCache.set(snapshot);
   clearTimeout(ui.saveTimer);
   ui.saveTimer = setTimeout(async () => {
+    if (pushSubscriptionState === "active") {
+      await syncHostedReminderSchedule().catch(() => {});
+    }
     if (!cloudStateAvailable) {
       showToast(message);
       return;
@@ -277,13 +286,140 @@ async function requestPersistentStorage() {
 
 const notificationsSupported = () => "Notification" in window && "serviceWorker" in navigator;
 const notificationPermission = () => notificationsSupported() ? Notification.permission : "unsupported";
+const hostedPushAvailable = document.querySelector('meta[name="bridge-hosted-push"]')?.content === "enabled";
+const backgroundPushSupported = () => notificationsSupported() && "PushManager" in window && hostedPushAvailable;
+const isStandaloneWebApp = () => window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
+const PUSH_DEVICE_TOKEN_KEY = "bridge-hosted-push-device-token-v1";
 let reminderTimer = null;
+let pushSubscriptionState = "checking";
+
+function urlBase64ToBytes(value) {
+  const padding = "=".repeat((4 - value.length % 4) % 4);
+  return Uint8Array.from(atob((value + padding).replace(/-/g, "+").replace(/_/g, "/")), character => character.charCodeAt(0));
+}
+
+async function currentPushSubscription() {
+  if (!backgroundPushSupported()) return null;
+  try { return await (await navigator.serviceWorker.ready).pushManager.getSubscription(); }
+  catch { return null; }
+}
+
+function pushDeviceToken() {
+  try { return localStorage.getItem(PUSH_DEVICE_TOKEN_KEY) || ""; }
+  catch { return ""; }
+}
+
+function setPushDeviceToken(value) {
+  try {
+    if (value) localStorage.setItem(PUSH_DEVICE_TOKEN_KEY, value);
+    else localStorage.removeItem(PUSH_DEVICE_TOKEN_KEY);
+  } catch {}
+}
+
+function hostedReminderSchedule() {
+  const recentCutoff = Date.now() - 45 * 86_400_000;
+  const conversationDates = state.contacts.flatMap(contact => (contact.conversations || [])
+    .filter(item => item.isCountedConversation && new Date(item.conversationDate || item.createdAt).getTime() >= recentCutoff)
+    .map(item => item.conversationDate || item.createdAt));
+  const followUps = state.contacts
+    .filter(contact => !contact.archivedAt)
+    .flatMap(contact => (contact.followUps || [])
+      .filter(item => !item.completedAt && Number.isFinite(new Date(item.dueDate).getTime()))
+      .map(item => ({
+        id: String(item.id),
+        dueDate: item.dueDate,
+        contactName: String(contact.fullName || "your contact").slice(0, 100),
+        note: String(item.note || "Your scheduled follow-up").slice(0, 180)
+      })));
+  return {
+    notificationsEnabled: Boolean(state.settings.notificationsEnabled),
+    followUpNotifications: Boolean(state.settings.followUpNotifications),
+    dailyReminderEnabled: Boolean(state.settings.dailyReminderEnabled),
+    dailyReminderTime: String(state.settings.dailyReminderTime || "09:00"),
+    dailyGoal: Math.max(1, Number(state.settings.dailyGoal) || 5),
+    conversationDates,
+    followUps,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+  };
+}
+
+async function registerHostedSubscription(subscription) {
+  const response = await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subscription, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.deviceToken) throw new Error(result.error || "Bridge could not register this device.");
+  setPushDeviceToken(result.deviceToken);
+  return result.deviceToken;
+}
+
+async function syncHostedReminderSchedule() {
+  const subscription = await currentPushSubscription();
+  let token = pushDeviceToken();
+  if (!subscription) return false;
+  if (!token) token = await registerHostedSubscription(subscription);
+  const response = await fetch("/api/push/schedule", {
+    method: "PUT",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint, schedule: hostedReminderSchedule() })
+  });
+  if (response.status === 401) {
+    setPushDeviceToken("");
+    token = await registerHostedSubscription(subscription);
+    return syncHostedReminderSchedule();
+  }
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Bridge could not update hosted reminders.");
+  return true;
+}
+
+async function refreshPushSubscriptionState() {
+  if (!backgroundPushSupported()) { pushSubscriptionState = "unsupported"; return null; }
+  const subscription = await currentPushSubscription();
+  pushSubscriptionState = subscription ? "active" : "inactive";
+  if (subscription && notificationPermission() === "granted") {
+    syncHostedReminderSchedule().catch(() => {});
+  }
+  return subscription;
+}
+
+async function enableBackgroundPush() {
+  if (!backgroundPushSupported()) throw new Error("Background reminders require the hosted Bridge web app.");
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !isStandaloneWebApp()) throw new Error("Add Bridge to your iPhone Home Screen before enabling background reminders.");
+  const permission = notificationPermission() === "granted" ? "granted" : await Notification.requestPermission();
+  if (permission !== "granted") throw new Error("Notification permission was not enabled.");
+  const registration = await navigator.serviceWorker.ready;
+  const configResponse = await fetch("/api/push/config", { headers: { Accept: "application/json" } });
+  const config = await configResponse.json();
+  if (!configResponse.ok || !config.publicKey) throw new Error(config.error || "Bridge push service is not configured yet.");
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(config.publicKey) });
+  await registerHostedSubscription(subscription);
+  pushSubscriptionState = "active";
+  state.settings.notificationsEnabled = true;
+  state.settings.followUpNotifications = true;
+  await syncHostedReminderSchedule();
+  return subscription;
+}
+
+async function disableBackgroundPush() {
+  const subscription = await currentPushSubscription();
+  if (subscription) {
+    const token = pushDeviceToken();
+    await fetch("/api/push/subscribe", { method: "DELETE", headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: subscription.endpoint }) }).catch(() => {});
+    await subscription.unsubscribe().catch(() => false);
+  }
+  setPushDeviceToken("");
+  pushSubscriptionState = "inactive";
+}
 
 async function persistStateSilently() {
   state.meta.updatedAt = nowISO();
   const snapshot = JSON.stringify(state);
   localCache.set(snapshot);
   durableCache.set(snapshot);
+  if (pushSubscriptionState === "active") syncHostedReminderSchedule().catch(() => {});
   if (!cloudStateAvailable) return;
   try { await fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, body: snapshot }); } catch {}
 }
@@ -304,6 +440,7 @@ async function checkReminders() {
   let changed = false;
   for (const event of events) {
     if (event.type === "followup") {
+      if (pushSubscriptionState === "active") continue;
       const sent = await sendBridgeNotification(`Follow up with ${event.contact.fullName}`, {
         body: `${event.followUp.note || "Your scheduled follow-up"} is ready now.`,
         tag: `bridge-followup-${event.followUp.id}`,
@@ -407,6 +544,8 @@ function offerPendingCommunication() {
 
 function render() {
   const app = $("#app");
+  const shouldAnimatePage = lastRenderedPage !== ui.page;
+  const shouldAnimateContactMode = ui.page === "contacts" && lastRenderedPage === "contacts" && lastRenderedContactMode !== ui.contactMode;
   document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
@@ -420,8 +559,10 @@ function render() {
       </nav>
       <div class="nav-spacer"></div><div class="sync-status">${cloudStateAvailable ? "Cloud synced" : "Saved on this device"}</div>
     </aside>
-    <main class="main"><section class="page">${renderPage()}</section></main>
+    <main class="main"><section class="page ${shouldAnimatePage ? "page-enter" : shouldAnimateContactMode ? "mode-enter" : ""}">${renderPage()}</section></main>
   </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}`;
+  lastRenderedPage = ui.page;
+  if (ui.page === "contacts") lastRenderedContactMode = ui.contactMode;
   bindCommonEvents();
   bindPageEvents();
   if (ui.settingsOpen) bindSettingsEvents();
@@ -431,7 +572,7 @@ function render() {
   if (ui.communicationContactId) bindCommunicationLogEvents();
 }
 
-function navButton(page, label, icon) { return `<button class="nav-button ${ui.page === page ? "active" : ""}" data-page="${page}" aria-label="${label}">${icons[icon]}<span>${label}</span></button>`; }
+function navButton(page, label, icon) { const active=ui.page===page; return `<button type="button" class="nav-button ${active ? "active" : ""}" data-page="${page}" aria-label="${label}" ${active ? 'aria-current="page"' : ""}>${icons[icon]}<span>${label}</span></button>`; }
 function pageHead(title, subtitle, actions = "") { return `<header class="page-head"><div><h1>${title}</h1><p>${subtitle}</p></div><div class="head-actions">${actions}</div></header>`; }
 function renderPage() {
   if (ui.page === "contacts") return renderContacts();
@@ -461,21 +602,21 @@ function renderDashboard() {
     </div>
     <div class="grid dashboard-grid">
       <div class="card glass dashboard-followups"><h2>Upcoming Follow-Ups</h2>${upcoming.length ? `<div class="list-stack followup-wheel" role="region" aria-label="Upcoming follow-ups" tabindex="0">${upcoming.map(item => miniFollowUp(item)).join("")}</div>` : emptyInline("No follow-ups scheduled", "Set one from a contact to keep momentum moving.")}</div>
-      <div class="card glass"><h2>Smart Suggestions</h2><div class="list-stack">${suggestions(todayCount, overdue).map(text => `<div class="mini-row"><div class="stat-icon">${icons.check}</div><span>${escapeHTML(text)}</span></div>`).join("")}</div></div>
+      <div class="card glass smart-suggestions"><h2>Smart Suggestions</h2><div class="suggestion-list">${suggestions(todayCount, overdue).map(item => `<div class="suggestion-row"><div class="suggestion-icon">${icons[item.icon]}</div><span class="suggestion-text">${escapeHTML(item.text)}</span></div>`).join("")}</div></div>
     </div>
     <div class="card glass achievement-preview section-gap"><div class="achievement-preview-icon">${icons.award}</div><div><span class="eyebrow">Achievements</span><h2>${unlockedCount} of ${ACHIEVEMENTS.length} unlocked</h2>${nextAchievement ? `<p class="muted">Next: ${escapeHTML(nextAchievement.name)} · ${Math.min(nextAchievement.current, nextAchievement.target)} of ${nextAchievement.target}</p>` : '<p class="muted">Every Bridge achievement is unlocked.</p>'}</div><button class="button subtle" id="viewAchievements">View all</button></div>`;
 }
 function statCard(icon, value, label) { return `<div class="card stat glass"><div class="stat-icon">${icons[icon]}</div><div><div class="stat-value">${value}</div><div class="muted">${label}</div></div></div>`; }
 function calculateStreak() { const days = new Set(countedConversations().map(log => dayKey(log.conversationDate || log.createdAt))); let count=0, cursor=startOfDay(new Date()); while(days.has(dayKey(cursor))){count++;cursor=addDays(cursor,-1);} return count; }
-function suggestions(todayCount, overdue) { const list=[]; if(todayCount<state.settings.dailyGoal) list.push(`Log ${state.settings.dailyGoal-todayCount} more conversation${state.settings.dailyGoal-todayCount===1?"":"s"} to reach today's goal.`); if(overdue) list.push(`Reconnect with ${overdue} overdue follow-up${overdue===1?"":"s"}.`); const high=state.contacts.filter(c=>c.interestLevel==="High"&&!c.isFilteredOut).length; if(high) list.push(`${high} high-interest contact${high===1?" is":"s are"} ready for attention.`); if(!list.length) list.push("You're caught up. Review your pipeline for the next best conversation."); return list.slice(0,3); }
+function suggestions(todayCount, overdue) { const list=[]; if(todayCount<state.settings.dailyGoal) list.push({icon:"target",text:`Log ${state.settings.dailyGoal-todayCount} more conversation${state.settings.dailyGoal-todayCount===1?"":"s"} to reach today's goal.`}); if(overdue) list.push({icon:"clock",text:`Reconnect with ${overdue} overdue follow-up${overdue===1?"":"s"}.`}); const high=state.contacts.filter(c=>c.interestLevel==="High"&&!c.isFilteredOut).length; if(high) list.push({icon:"userPlus",text:`${high} high-interest contact${high===1?" is":"s are"} ready for attention.`}); if(!list.length) list.push({icon:"circleCheck",text:"You're caught up. Review your pipeline for the next best conversation."}); return list.slice(0,3); }
 function miniFollowUp(item) { const overdue = new Date(item.dueDate)<new Date(); return `<button class="mini-row" data-contact-id="${item.contact.id}"><div class="avatar">${initials(item.contact.fullName)}</div><div><strong>${escapeHTML(item.contact.fullName)}</strong><span class="muted">${escapeHTML(item.note||"Follow up")}</span></div><div class="row-end"><span class="pill ${overdue?"danger":"accent"}">${overdue?"Overdue · ":""}${fmtDateTime(item.dueDate)}</span></div></button>`; }
 function emptyInline(title, text) { return `<div class="empty"><div><strong>${title}</strong>${text}</div></div>`; }
 
 function renderContacts() {
   const filtered = getFilteredContacts();
-  const modeControls = ["list","pipeline","places"].map(mode => `<button data-contact-mode="${mode}" class="${ui.contactMode===mode?"active":""}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join("");
+  const modeControls = ["list","pipeline","places"].map(mode => { const active=ui.contactMode===mode; return `<button type="button" role="tab" data-contact-mode="${mode}" class="${active?"active":""}" aria-selected="${active}">${mode[0].toUpperCase()+mode.slice(1)}</button>`; }).join("");
   return `${pageHead("Contacts", "Search, segment, and move relationships forward.", `<button class="button primary" data-page="add">${icons.plus}<span>Add contact</span></button>`)}
-    <div class="toolbar glass"><label class="search">${icons.search}<input id="contactSearch" type="search" value="${escapeHTML(ui.search)}" placeholder="Search contacts" autocomplete="off"></label><div class="segmented">${modeControls}</div><div class="select-wrap">${icons.sort}<select id="sortContacts" aria-label="Sort contacts"><option value="recentContact" ${ui.sort==="recentContact"?"selected":""}>Most recent contact added</option><option value="recentConversation" ${ui.sort==="recentConversation"?"selected":""}>Most recent conversation</option><option value="oldestConversation" ${ui.sort==="oldestConversation"?"selected":""}>Oldest conversation</option><option value="followup" ${ui.sort==="followup"?"selected":""}>Next follow-up date</option><option value="interest" ${ui.sort==="interest"?"selected":""}>Interest level</option></select><span class="select-chevron">${icons.chevronDown}</span></div></div>
+    <div class="toolbar glass"><label class="search">${icons.search}<input id="contactSearch" type="search" value="${escapeHTML(ui.search)}" placeholder="Search contacts" autocomplete="off"></label><div class="segmented contacts-segmented" role="tablist" aria-label="Contacts view">${modeControls}</div><div class="select-wrap">${icons.sort}<select id="sortContacts" aria-label="Sort contacts"><option value="recentContact" ${ui.sort==="recentContact"?"selected":""}>Most recent contact added</option><option value="recentConversation" ${ui.sort==="recentConversation"?"selected":""}>Most recent conversation</option><option value="oldestConversation" ${ui.sort==="oldestConversation"?"selected":""}>Oldest conversation</option><option value="followup" ${ui.sort==="followup"?"selected":""}>Next follow-up date</option><option value="interest" ${ui.sort==="interest"?"selected":""}>Interest level</option></select><span class="select-chevron">${icons.chevronDown}</span></div></div>
     ${ui.contactMode!=="places"?`<div class="filter-row contact-filter-row"><label class="select-wrap role-filter">${icons.people}<select id="roleFilter"><option>All Roles</option><option ${ui.roleFilter==="Prospect"?"selected":""}>Prospect</option><option ${ui.roleFilter==="Customer"?"selected":""}>Customer</option></select><span class="select-chevron">${icons.chevronDown}</span></label><label class="select-wrap archive-filter">${icons.archive}<select id="archiveFilter" aria-label="Contact visibility"><option ${ui.archiveFilter==="Active"?"selected":""}>Active</option><option ${ui.archiveFilter==="Archived"?"selected":""}>Archived</option><option ${ui.archiveFilter==="All"?"selected":""}>All</option></select><span class="select-chevron">${icons.chevronDown}</span></label></div><div class="conversation-date-filter card glass"><div><span class="eyebrow">Conversation date</span><p class="muted">Show contacts with activity in this range.</p></div>${field("From",`<input id="conversationFrom" type="date" value="${ui.conversationFrom}">`)}${field("To",`<input id="conversationTo" type="date" value="${ui.conversationTo}">`)}${ui.conversationFrom||ui.conversationTo?'<button class="button subtle" id="clearConversationDates" type="button">Clear dates</button>':''}</div>`:""}
     ${ui.contactMode === "pipeline" ? renderPipeline(filtered) : ui.contactMode === "places" ? renderPlaces() : renderContactList(filtered)}`;
 }
@@ -563,7 +704,7 @@ function settingsModal() {
   return `<div class="modal-backdrop" id="settingsBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><header class="modal-head"><h2 id="settingsTitle">Settings</h2><button class="icon-button close-modal" aria-label="Close">${icons.close}</button></header><div class="modal-body"><form id="settingsForm">
     ${settingsSection("Profile & Goals",`${settingsRow("First name",`<input name="firstName" value="${escapeHTML(s.firstName)}" placeholder="First name" autocomplete="given-name">`)}${settingsRow("Last name",`<input name="lastName" value="${escapeHTML(s.lastName)}" placeholder="Last name" autocomplete="family-name">`)}${settingsRow("Business name",`<input name="businessName" value="${escapeHTML(s.businessName)}" placeholder="Business">`)}${settingsRow("Daily goal",`<input name="dailyGoal" type="number" min="1" max="100" value="${s.dailyGoal}">`)}${settingsRow("Weekly goal",`<input name="weeklyGoal" type="number" min="1" max="500" value="${s.weeklyGoal}">`)}${settingsRow("Monthly goal",`<input name="monthlyGoal" type="number" min="1" max="2000" value="${s.monthlyGoal}">`)}`)}
     ${settingsSection("Workflow",`${settingsRow("Default follow-up",`<select name="defaultFollowUpDays"><option value="1" ${s.defaultFollowUpDays==1?"selected":""}>1 day</option><option value="2" ${s.defaultFollowUpDays==2?"selected":""}>2 days</option><option value="7" ${s.defaultFollowUpDays==7?"selected":""}>1 week</option></select>`)}${settingsRow("Week starts",`<select name="weekStart"><option value="0" ${s.weekStart==0?"selected":""}>Sunday</option><option value="1" ${s.weekStart==1?"selected":""}>Monday</option></select>`)}<div class="settings-row settings-row-explained"><span><strong>Automatically archive inactive contacts after 30 days</strong><small>Contacts with no pipeline stage, no MSA activity, no scheduled follow-up, and no pipeline progress leave the active list after 30 days. Historical activity remains in Analytics.</small></span><input type="checkbox" name="autoArchiveInactive" ${s.autoArchiveInactive?"checked":""}></div><p class="settings-note">${state.contacts.filter(contact=>contact.archivedAt).length} archived contact${state.contacts.filter(contact=>contact.archivedAt).length===1?"":"s"}. View and restore them from the Contacts visibility filter.</p>`)}
-    ${settingsSection("Notifications",`<div class="notification-status"><span class="status-dot ${notificationPermission()}"></span><div><strong>${notificationPermission()==="granted"?"Notifications allowed":notificationPermission()==="denied"?"Notifications blocked":notificationPermission()==="unsupported"?"Notifications unavailable":"Permission not requested"}</strong><small>${notificationPermission()==="denied"?"Re-enable Bridge notifications in your browser or iPhone settings.":"Bridge asks only when you tap the permission button."}</small></div>${notificationPermission()==="default"?'<button type="button" class="button subtle" id="requestNotifications">Allow notifications</button>':""}</div>${settingsRow("Enable notifications",`<input type="checkbox" name="notificationsEnabled" ${s.notificationsEnabled?"checked":""} ${notificationPermission()!=="granted"?"disabled":""}>`)}${settingsRow("Follow-up reminders",`<input type="checkbox" name="followUpNotifications" ${s.followUpNotifications?"checked":""}>`)}${settingsRow("Daily conversation reminder",`<input type="checkbox" name="dailyReminderEnabled" ${s.dailyReminderEnabled?"checked":""}>`)}${settingsRow("Daily reminder time",`<input class="compact-time-control" type="time" name="dailyReminderTime" value="${escapeHTML(s.dailyReminderTime||"09:00")}">`,"settings-row-time")}<p class="settings-note">On iPhone, install Bridge from Safari and allow notifications. With the current offline-first setup, reminder checks run while Bridge is open or resumed.</p>`)}
+    ${settingsSection("Notifications",notificationSettings(s))}
     ${settingsSection("Appearance",`${settingsRow("Theme",`<select name="theme"><option value="system" ${s.theme==="system"?"selected":""}>System</option><option value="light" ${s.theme==="light"?"selected":""}>Light</option><option value="dark" ${s.theme==="dark"?"selected":""}>Dark</option></select>`)}${settingsRow("Accent color",`<div class="accent-options"><input type="hidden" name="accent" value="${escapeHTML(selectedAccent)}">${Object.entries(ACCENTS).map(([name,[color]])=>`<button type="button" class="accent-dot ${selectedAccent===name?"active":""}" data-accent="${name}" title="${name}" aria-label="${name}" aria-pressed="${selectedAccent===name}" style="background:${color};color:${color}"></button>`).join("")}</div>`)}${settingsRow("Compact cards",`<input type="checkbox" name="compact" ${s.compact?"checked":""}>`)}`)}
     ${settingsSection("Data & Backup",`${settingsRow("Download all Bridge data",`<button type="button" class="button subtle" id="exportBackup">${icons.download}JSON</button>`)}${settingsRow("Export contacts",`<button type="button" class="button subtle" id="exportCSV">${icons.download}CSV</button>`)}${settingsRow("Restore from backup",`<label class="button subtle">Choose file<input id="importBackup" type="file" accept="application/json" hidden></label>`)}`)}
     ${settingsSection("Support",`${settingsRow("Send feedback",`<a class="button subtle" href="mailto:fountainofyouthxs@gmail.com?subject=Bridge%20Feedback">Email</a>`)}${settingsRow("Report a bug",`<a class="button subtle" href="mailto:fountainofyouthxs@gmail.com?subject=Bridge%20Bug%20Report">Email</a>`)}`)}
@@ -571,6 +712,14 @@ function settingsModal() {
 }
 function settingsSection(title,content){return `<section class="settings-section card glass"><h2>${title}</h2>${content}</section>`;}
 function settingsRow(label,control,className=""){return `<div class="settings-row ${className}"><span>${label}</span>${control}</div>`;}
+function notificationSettings(s){
+  const permission=notificationPermission();
+  const active=pushSubscriptionState==="active";
+  const title=active?"Background reminders active":permission==="denied"?"Notifications blocked":pushSubscriptionState==="unsupported"?"Background reminders unavailable":permission==="granted"?"Finish background setup":"Permission not requested";
+  const detail=active?"Bridge can notify this device even when the web app is closed.":permission==="denied"?"Re-enable Bridge in iPhone Settings > Notifications.":pushSubscriptionState==="unsupported"?"Use the hosted Bridge app. On iPhone, add it to your Home Screen first.":"Bridge asks only after you choose to enable reminders.";
+  const actions=active?'<div class="notification-actions"><button type="button" class="button subtle" id="testPushNotification">Send test</button><button type="button" class="button subtle" id="disablePushNotifications">Disable on this device</button></div>':'<button type="button" class="button subtle" id="requestNotifications">Enable background reminders</button>';
+  return `<div class="notification-status"><span class="status-dot ${active?"granted":permission}"></span><div><strong>${title}</strong><small>${detail}</small></div>${actions}</div>${settingsRow("Enable notifications",`<input type="checkbox" name="notificationsEnabled" ${s.notificationsEnabled?"checked":""} ${permission!=="granted"?"disabled":""}>`)}${settingsRow("Follow-up reminders",`<input type="checkbox" name="followUpNotifications" ${s.followUpNotifications?"checked":""}>`)}${settingsRow("Daily conversation reminder",`<input type="checkbox" name="dailyReminderEnabled" ${s.dailyReminderEnabled?"checked":""}>`)}${settingsRow("Daily reminder time",`<input class="compact-time-control" type="time" name="dailyReminderTime" value="${escapeHTML(s.dailyReminderTime||"09:00")}">`,"settings-row-time")}<p class="settings-note">Installed iPhone Home Screen apps receive hosted follow-up and daily goal reminders even while Bridge is closed.</p>`;
+}
 function detailItem(label,value,cls=""){return `<div class="contact-info-item ${cls}"><span>${label}</span><strong class="${value?"":"muted"}">${value?escapeHTML(value):"Not provided"}</strong></div>`;}
 
 function contactInformation(c) {
@@ -622,7 +771,7 @@ function discardContactEdit() {
 function closeContactDetail() { if (!discardContactEdit()) return false; ui.detailId=null;ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();return true; }
 
 function bindCommonEvents(){
-  $$('[data-page]').forEach(button=>button.addEventListener('click',()=>{if(ui.detailId&&!closeContactDetail())return;ui.page=button.dataset.page;window.scrollTo({top:0,left:0,behavior:'auto'});render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'auto'}));}));
+  $$('[data-page]').forEach(button=>button.addEventListener('click',()=>{const nextPage=button.dataset.page;if(ui.detailId&&!closeContactDetail())return;if(ui.page===nextPage&&!ui.detailId)return;ui.page=nextPage;window.scrollTo({top:0,left:0,behavior:'auto'});render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'auto'}));}));
   $$('[data-contact-id]').forEach(button=>button.addEventListener('click',()=>{ui.detailId=button.dataset.contactId;ui.contactEditing=false;ui.contactEditDirty=false;render();}));
   $$('[data-communication-contact-id]').forEach(link=>link.addEventListener('click',event=>{const contact=state.contacts.find(item=>item.id===link.dataset.communicationContactId);const type=link.dataset.communicationType||"Call";if(!contact||!canonicalPhone(contact.phoneNumber)){event.preventDefault();showToast('Add a valid phone number before using this action');return;}if(!startCommunication(contact.id,type))event.preventDefault();}));
   $$('[data-log-communication-contact-id]').forEach(button=>button.addEventListener('click',()=>openCommunicationLog(button.dataset.logCommunicationContactId,button.dataset.communicationType||"Call")));
@@ -635,8 +784,8 @@ function bindCommonEvents(){
 
 function bindPageEvents(){
   $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsOpen=true;render();});
-  $$('[data-contact-mode]').forEach(button=>button.addEventListener('click',()=>{ui.contactMode=button.dataset.contactMode;render();}));
-  $('#contactSearch')?.addEventListener('input',event=>{ui.search=event.target.value;const cursor=event.target.selectionStart;render();const input=$('#contactSearch');input?.focus();input?.setSelectionRange(cursor,cursor);});
+  $$('[data-contact-mode]').forEach(button=>button.addEventListener('click',()=>{const nextMode=button.dataset.contactMode;if(ui.contactMode===nextMode)return;ui.contactMode=nextMode;render();}));
+  $('#contactSearch')?.addEventListener('input',event=>{ui.search=event.target.value;const cursor=event.target.selectionStart;clearTimeout(searchRenderTimer);searchRenderTimer=setTimeout(()=>{render();const input=$('#contactSearch');input?.focus();input?.setSelectionRange(cursor,cursor);},100);});
   $('#roleFilter')?.addEventListener('change',event=>{ui.roleFilter=event.target.value;render();});
   $('#archiveFilter')?.addEventListener('change',event=>{ui.archiveFilter=event.target.value;render();});
   $('#conversationFrom')?.addEventListener('change',event=>{ui.conversationFrom=event.target.value;if(ui.conversationTo&&ui.conversationFrom>ui.conversationTo)ui.conversationTo=ui.conversationFrom;render();});
@@ -671,7 +820,9 @@ function handleAddContact(event){
 
 function bindSettingsEvents(){
   $$('.accent-dot').forEach(button=>button.addEventListener('click',()=>{const accent=button.dataset.accent;if(!ACCENTS[accent])return;ui.settingsAccentDraft=accent;const input=$('#settingsForm input[name="accent"]');if(input)input.value=accent;$$('.accent-dot').forEach(dot=>{const selected=dot===button;dot.classList.toggle('active',selected);dot.setAttribute('aria-pressed',String(selected));});}));
-  $('#requestNotifications')?.addEventListener('click',async()=>{if(!notificationsSupported())return;const permission=await Notification.requestPermission();if(permission==='granted')state.settings.notificationsEnabled=true;queueSave(permission==='granted'?'Notifications enabled':'Notification permission was not enabled');render();startReminderChecks();});
+  $('#requestNotifications')?.addEventListener('click',async()=>{try{pushSubscriptionState='checking';await enableBackgroundPush();queueSave('Background reminders enabled');render();startReminderChecks();}catch(error){await refreshPushSubscriptionState();showToast(error?.message||'Background reminders could not be enabled');render();}});
+  $('#testPushNotification')?.addEventListener('click',async()=>{try{const subscription=await currentPushSubscription();const token=pushDeviceToken();if(!subscription||!token)throw new Error('Enable background reminders first');const response=await fetch('/api/push/test-device',{method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({endpoint:subscription.endpoint})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Test notification failed');showToast('Test notification sent');}catch(error){showToast(error?.message||'Test notification failed');}});
+  $('#disablePushNotifications')?.addEventListener('click',async()=>{await disableBackgroundPush();state.settings.notificationsEnabled=false;queueSave('Background reminders disabled on this device');render();startReminderChecks();});
   $('#settingsForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);const accent=String(f.get('accent')||state.settings.accent);const firstName=String(f.get('firstName')||'').trim();const lastName=String(f.get('lastName')||'').trim();state.settings={...state.settings,name:[firstName,lastName].filter(Boolean).join(' '),firstName,lastName,businessName:String(f.get('businessName')||''),dailyGoal:Number(f.get('dailyGoal'))||5,weeklyGoal:Number(f.get('weeklyGoal'))||25,monthlyGoal:Number(f.get('monthlyGoal'))||100,defaultFollowUpDays:Number(f.get('defaultFollowUpDays'))||2,weekStart:Number(f.get('weekStart'))||0,theme:String(f.get('theme')),accent:ACCENTS[accent]?accent:state.settings.accent,compact:f.has('compact'),autoArchiveInactive:f.has('autoArchiveInactive'),notificationsEnabled:f.has('notificationsEnabled')&&notificationPermission()==='granted',followUpNotifications:f.has('followUpNotifications'),dailyReminderEnabled:f.has('dailyReminderEnabled'),dailyReminderTime:String(f.get('dailyReminderTime')||'09:00')};const archived=archiveInactiveContacts(state.contacts,state.settings.autoArchiveInactive);ui.settingsAccentDraft=null;applyAppearance();queueSave(archived?`${archived} inactive contact${archived===1?'':'s'} archived`:'Settings saved');ui.settingsOpen=false;render();startReminderChecks();});
   $('#exportBackup')?.addEventListener('click',()=>downloadFile(`bridge-backup-${todayInput()}.json`,JSON.stringify(state,null,2),'application/json'));
   $('#exportCSV')?.addEventListener('click',()=>{const rows=[['Name','Phone','Role','Interest','Judgement','Conversation Type','Place','Date First Met','Pipeline'],...state.contacts.map(c=>[c.fullName,c.phoneNumber,c.role,c.interestLevel,c.judgement,c.conversationType,c.placeName,c.dateFirstMet,stageFor(c)])];downloadFile(`bridge-contacts-${todayInput()}.csv`,rows.map(r=>r.map(csvCell).join(',')).join('\n'),'text/csv');});
@@ -717,8 +868,48 @@ function bindCommunicationLogEvents(){
   $('#communicationLogForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);const occurredAt=new Date(String(f.get('conversationDate'))).toISOString();const communicationType=String(f.get('communicationType'))==='Text'?'Text':'Call';const duration=communicationType==='Call'?(Number(f.get('durationMinutes'))||null):null;const followUp=String(f.get('followUpDate')||'');let log=c.conversations.find(item=>item.id===ui.communicationLogId);const isNew=!log;if(!log){log={id:uid(),createdAt:nowISO(),isCountedConversation:false};c.conversations.push(log);}Object.assign(log,{type:communicationType==='Text'?'Text Message':'Call',communicationType,direction:String(f.get('direction')||'Outgoing'),outcome:String(f.get('outcome')),durationMinutes:duration,interestLevel:c.interestLevel,notes:String(f.get('notes')||'').trim(),conversationDate:occurredAt,isCountedConversation:false,followUpCreated:Boolean(log.followUpCreated||followUp)});if(followUp){c.followUps=c.followUps.filter(item=>item.completedAt);c.followUps.push({id:uid(),dueDate:new Date(followUp).toISOString(),completedAt:null,note:`${communicationType} follow-up`,createdAt:nowISO(),sourceCommunicationId:log.id});}const activity=String(f.get('standaloneActivity')||'');if(['MSA','DTM'].includes(activity)&&!c.stages[activity]){c.stages[activity]=true;c.stageDates[activity]=occurredAt;c.stageEvents.push({id:uid(),stage:activity,occurredAt});}const nextStage=String(f.get('pipelineStage')||'');if(nextStage==='__clear')setPipelineStage(c,'');else if(PIPELINES[c.role].includes(nextStage))setPipelineStage(c,nextStage,occurredAt);c.updatedAt=nowISO();ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();queueSave(isNew?`${communicationType} logged`:'Communication log updated');render();});
 }
 
+function installGlassInteractions() {
+  const selector = '.button, .icon-button, .nav-button, .segmented button, .contact-card-open, .check-tile';
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let active = null;
+  let frame = 0;
+
+  const updateOptics = (element, clientX, clientY) => {
+    if (!element || reducedMotion.matches) return;
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      const bounds = element.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const x = Math.max(0, Math.min(100, ((clientX - bounds.left) / bounds.width) * 100));
+      const y = Math.max(0, Math.min(100, ((clientY - bounds.top) / bounds.height) * 100));
+      element.style.setProperty('--glass-x', `${x}%`);
+      element.style.setProperty('--glass-y', `${y}%`);
+    });
+  };
+
+  document.addEventListener('pointerdown', event => {
+    active = event.target.closest(selector);
+    if (!active) return;
+    active.classList.add('is-glass-pressing');
+    updateOptics(active, event.clientX, event.clientY);
+  }, { passive: true });
+
+  document.addEventListener('pointermove', event => {
+    if (active) updateOptics(active, event.clientX, event.clientY);
+  }, { passive: true });
+
+  const release = () => {
+    active?.classList.remove('is-glass-pressing');
+    active = null;
+  };
+  document.addEventListener('pointerup', release, { passive: true });
+  document.addEventListener('pointercancel', release, { passive: true });
+  window.addEventListener('blur', release);
+}
+
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}), { once: true });
 }
 
+installGlassInteractions();
 loadState();
