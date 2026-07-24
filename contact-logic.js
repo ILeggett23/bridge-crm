@@ -79,11 +79,52 @@
     return contact;
   }
 
+  function latestStageEventTime(contact, stage) {
+    const values = (contact.stageEvents || [])
+      .filter(event => event.stage === stage)
+      .map(event => time(event.occurredAt))
+      .filter(value => value !== null);
+    return values.length ? Math.max(...values) : null;
+  }
+
+  function resolveCurrentPipelineStage(contact, validStages) {
+    const selected = validStages.filter(stage => Boolean(contact.stages?.[stage]));
+    if (!selected.length) return "";
+    const withEvents = selected
+      .map(stage => ({ stage, occurredAt: latestStageEventTime(contact, stage) }))
+      .filter(item => item.occurredAt !== null)
+      .sort((a, b) => b.occurredAt - a.occurredAt);
+    if (withEvents.length) return withEvents[0].stage;
+    const withDates = selected
+      .map(stage => ({ stage, occurredAt: time(contact.stageDates?.[stage]) }))
+      .filter(item => item.occurredAt !== null)
+      .sort((a, b) => b.occurredAt - a.occurredAt);
+    if (withDates.length) return withDates[0].stage;
+    return selected.sort((a, b) => validStages.indexOf(b) - validStages.indexOf(a))[0];
+  }
+
+  function normalizePipelineStages(contact, validStages) {
+    contact.stages = contact.stages && typeof contact.stages === "object" ? contact.stages : {};
+    const current = resolveCurrentPipelineStage(contact, validStages);
+    validStages.forEach(stage => { contact.stages[stage] = stage === current; });
+    return current;
+  }
+
+  function matchesVisibilityFilter(contact, filter = "Active") {
+    if (filter === "All") return true;
+    if (filter === "Archived") return Boolean(contact.archivedAt);
+    if (filter === "No-Go") return !contact.archivedAt && Boolean(contact.isFilteredOut);
+    return !contact.archivedAt && !contact.isFilteredOut;
+  }
+
   global.BridgeLogic = Object.freeze({
     archiveInactiveContacts,
     hasConversationInRange,
     lastRelevantActivityTime,
     latestConversationTime,
+    matchesVisibilityFilter,
+    normalizePipelineStages,
+    resolveCurrentPipelineStage,
     restoreContact,
     setFilteredOut,
     shouldArchiveContact,
