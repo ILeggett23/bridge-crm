@@ -1,7 +1,7 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const { archiveInactiveContacts, hasConversationInRange, latestConversationTime, matchesVisibilityFilter, normalizePipelineStages, resolveCurrentPipelineStage, restoreContact, setFilteredOut, sortContacts } = globalThis.BridgeLogic;
-const { dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, evaluateAchievements } = globalThis.BridgeEngagement;
+const { dailyGoalMetrics, dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, evaluateAchievements } = globalThis.BridgeEngagement;
 const { analyticsRange, inAnalyticsRange, uniquePhoneCaptures } = globalThis.BridgeAnalytics;
 const { canonicalPhone, phoneIdentity, telHref, smsHref } = globalThis.BridgeCommunication;
 const bridgeStyles = $$('link[data-bridge-styles]');
@@ -587,12 +587,14 @@ function renderPage() {
 }
 
 function renderDashboard() {
-  const today = todayInput();
-  const todayCount = countedConversations().filter(log => dayKey(log.conversationDate || log.createdAt) === today).length;
+  const dailyGoal = dailyGoalMetrics(state);
+  const todayCount = dailyGoal.todayCount;
   const overdue = activeFollowUps().filter(item => new Date(item.dueDate) < new Date()).length;
   const launches = state.contacts.filter(contact => contact.stages.LA).length;
   const activeContacts = state.contacts.filter(contact => !contact.archivedAt);
-  const streak = calculateStreak();
+  const streak = dailyGoal.goalStreak;
+  const streakText = `${streak} day${streak === 1 ? "" : "s"} streak`;
+  const streakStatus = dailyGoal.todayComplete ? `${streakText} · Daily goal complete.` : `${streakText} · Complete today's goal to earn a streak.`;
   const upcoming = activeFollowUps();
   const savedFirstName = String(state.settings.firstName || "").trim();
   const dashboardTitle = savedFirstName ? `Hi, ${escapeHTML(savedFirstName)}` : "Dashboard";
@@ -600,9 +602,9 @@ function renderDashboard() {
   const unlockedCount = achievementState.progress.filter(item => item.unlockedAt).length;
   const nextAchievement = achievementState.progress.find(item => !item.unlockedAt);
   return `${pageHead(dashboardTitle, "Your relationship-building work at a glance.", `<button class="icon-button" id="settingsButton" aria-label="Settings">${icons.gear}</button>`)}
-    <div class="card glass"><div class="goal-row"><div class="goal-copy"><span class="eyebrow">Daily conversation goal</span><div class="goal-count">${todayCount} of ${state.settings.dailyGoal}</div></div><button class="button primary" data-page="add" aria-label="Add conversation">${icons.plus}<span>Add conversation</span></button></div><div class="progress"><span style="width:${Math.min(100,todayCount/Math.max(1,state.settings.dailyGoal)*100)}%"></span></div><span class="muted">${streak} day prospecting streak</span></div>
+    <div class="card glass"><div class="goal-row"><div class="goal-copy"><span class="eyebrow">Daily conversation goal</span><div class="goal-count">${todayCount} of ${dailyGoal.goal}</div></div><button class="button primary" data-page="add" aria-label="Add conversation">${icons.plus}<span>Add conversation</span></button></div><div class="progress"><span style="width:${Math.min(100,todayCount/dailyGoal.goal*100)}%"></span></div><span class="muted">${streakStatus}</span></div>
     <div class="grid stats-grid section-gap">
-      ${statCard("userPlus", activeContacts.length, "Contacts")}${statCard("warning", overdue, "Overdue")}${statCard("flag", launches, "Launches")}${statCard("fire", `${streak}d`, "Streak")}
+      ${statCard("userPlus", activeContacts.length, "Contacts")}${statCard("warning", overdue, "Overdue")}${statCard("flag", launches, "Launches")}${statCard("fire", streak, streakText)}
     </div>
     <div class="grid dashboard-grid">
       <div class="card glass dashboard-followups"><h2>Upcoming Follow-Ups</h2>${upcoming.length ? `<div class="list-stack followup-wheel" role="region" aria-label="Upcoming follow-ups" tabindex="0">${upcoming.map(item => miniFollowUp(item)).join("")}</div>` : emptyInline("No follow-ups scheduled", "Set one from a contact to keep momentum moving.")}</div>
@@ -611,7 +613,6 @@ function renderDashboard() {
     <div class="card glass achievement-preview section-gap"><div class="achievement-preview-icon">${icons.award}</div><div><span class="eyebrow">Achievements</span><h2>${unlockedCount} of ${ACHIEVEMENTS.length} unlocked</h2>${nextAchievement ? `<p class="muted">Next: ${escapeHTML(nextAchievement.name)} · ${Math.min(nextAchievement.current, nextAchievement.target)} of ${nextAchievement.target}</p>` : '<p class="muted">Every Bridge achievement is unlocked.</p>'}</div><button class="button subtle" id="viewAchievements">View all</button></div>`;
 }
 function statCard(icon, value, label) { return `<div class="card stat glass"><div class="stat-icon">${icons[icon]}</div><div><div class="stat-value">${value}</div><div class="muted">${label}</div></div></div>`; }
-function calculateStreak() { const days = new Set(countedConversations().map(log => dayKey(log.conversationDate || log.createdAt))); let count=0, cursor=startOfDay(new Date()); while(days.has(dayKey(cursor))){count++;cursor=addDays(cursor,-1);} return count; }
 function suggestions(todayCount, overdue) { const list=[]; if(todayCount<state.settings.dailyGoal) list.push({icon:"target",text:`Log ${state.settings.dailyGoal-todayCount} more conversation${state.settings.dailyGoal-todayCount===1?"":"s"} to reach today's goal.`}); if(overdue) list.push({icon:"clock",text:`Reconnect with ${overdue} overdue follow-up${overdue===1?"":"s"}.`}); const high=state.contacts.filter(c=>c.role!=="Team"&&c.interestLevel==="High"&&!c.isFilteredOut).length; if(high) list.push({icon:"userPlus",text:`${high} high-interest contact${high===1?" is":"s are"} ready for attention.`}); if(!list.length) list.push({icon:"circleCheck",text:"You're caught up. Review your pipeline for the next best conversation."}); return list.slice(0,3); }
 function miniFollowUp(item) { const overdue = new Date(item.dueDate)<new Date(); return `<button class="mini-row" data-contact-id="${item.contact.id}"><div class="avatar">${initials(item.contact.fullName)}</div><div><strong>${escapeHTML(item.contact.fullName)}</strong><span class="muted">${escapeHTML(item.note||"Follow up")}</span></div><div class="row-end"><span class="pill ${overdue?"danger":"accent"}">${overdue?"Overdue · ":""}${fmtDateTime(item.dueDate)}</span></div></button>`; }
 function emptyInline(title, text) { return `<div class="empty"><div><strong>${title}</strong>${text}</div></div>`; }
@@ -673,6 +674,8 @@ function analyticsDateControls() {
 
 function renderAnalytics() {
   const range=rangeForAnalytics(), logs=countedConversations(range), contacts=state.contacts.filter(c=>inRange(c.dateFirstMet,range));
+  const dailyGoal = dailyGoalMetrics(state);
+  const streakText = `${dailyGoal.goalStreak} day${dailyGoal.goalStreak === 1 ? "" : "s"} streak`;
   const capturedContacts=uniquePhoneCaptures(state.contacts,range);
   const communications=state.contacts.flatMap(contact=>contact.conversations.map(log=>({...log,contact}))).filter(log=>log.communicationType&&inRange(log.conversationDate||log.createdAt,range));
   const communicationMetrics={callsAttempted:communications.filter(log=>log.communicationType==="Call").length,callsConnected:communications.filter(log=>log.communicationType==="Call"&&log.outcome==="Connected").length,textsSent:communications.filter(log=>log.communicationType==="Text"&&log.direction==="Outgoing"&&log.outcome==="Text sent").length,textResponses:communications.filter(log=>log.communicationType==="Text"&&(log.direction==="Incoming"||log.outcome==="Response received")).length,followUps:communications.filter(log=>log.followUpCreated).length};
@@ -680,7 +683,7 @@ function renderAnalytics() {
   const interest=Object.fromEntries(INTERESTS.map(level=>[level,contacts.filter(c=>c.role!=="Team"&&c.interestLevel===level).length]));
   const maxInterest=Math.max(1,...Object.values(interest));
   return `${pageHead("Analytics", "See the activity that creates momentum.")}
-    <div class="card glass section-card analytics-period-card"><div class="period-controls"><div class="segmented analytics-segmented" aria-label="Analytics period">${["day","week","month","custom"].map(mode=>`<button type="button" data-range="${mode}" class="${ui.analyticsRange===mode?"active":""}" aria-pressed="${ui.analyticsRange===mode}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join("")}</div><div class="analytics-period-detail">${analyticsDateControls()}<strong class="period-label">${range.label}</strong></div></div></div>
+    <div class="card glass section-card analytics-period-card"><div class="period-controls"><div class="segmented analytics-segmented" aria-label="Analytics period">${["day","week","month","custom"].map(mode=>`<button type="button" data-range="${mode}" class="${ui.analyticsRange===mode?"active":""}" aria-pressed="${ui.analyticsRange===mode}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join("")}</div><div class="analytics-period-detail">${analyticsDateControls()}<strong class="period-label">${range.label}</strong><span class="muted analytics-streak">Current daily-goal ${streakText}</span></div></div></div>
     <div class="grid stats-grid">${statCard("chart",logs.length,"Conversations")}${statCard("contactCard",capturedContacts.length,"Contacts")}${statCard("people",contacts.filter(c=>c.role==="Prospect").length,"Prospects")}${statCard("target",contacts.filter(c=>c.role==="Customer").length,"Prospective Customers")}</div>
     <div class="grid analytics-grid section-gap"><div class="card glass"><h2>Pipeline Activity</h2><div class="metric-bars">${["MSA","DTM","PQI","QI/P","FUP","LA","CNA"].map(stage=>metricBar(stage,stageCounts[stage],Math.max(1,...Object.values(stageCounts)))).join("")}</div></div><div class="card glass"><h2>Communication Activity</h2><div class="metric-bars">${Object.entries({"Calls attempted":communicationMetrics.callsAttempted,"Calls connected":communicationMetrics.callsConnected,"Texts sent":communicationMetrics.textsSent,"Text responses":communicationMetrics.textResponses,"Follow-ups created":communicationMetrics.followUps}).map(([label,value])=>metricBar(label,value,Math.max(1,...Object.values(communicationMetrics)))).join("")}</div></div><div class="card glass"><h2>Interest Breakdown</h2><div class="metric-bars">${INTERESTS.map(level=>metricBar(level,interest[level],maxInterest)).join("")}</div></div><div class="card glass"><h2>Conversation Mix</h2><div class="metric-bars">${CONVERSATION_TYPES.map(type=>metricBar(type,logs.filter(log=>log.type===type).length,Math.max(1,logs.length))).join("")}</div></div><div class="card glass"><h2>Follow-Up Completion</h2>${followUpAnalytics(range)}</div></div>`;
 }
@@ -894,6 +897,3 @@ function bindCommunicationLogEvents(){
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}), { once: true });
-}
-
-loadState();
