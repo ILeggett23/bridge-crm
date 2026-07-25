@@ -1,6 +1,34 @@
-const CACHE = "bridge-app-v45";
+const CACHE = "bridge-app-v46";
 const ROOT = new URL("./", self.location.href).href;
 const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("contact-logic.js", ROOT).href, new URL("engagement-logic.js", ROOT).href, new URL("communication-logic.js", ROOT).href, new URL("analytics-logic.js", ROOT).href, new URL("app.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("bridge-icon-192.png", ROOT).href, new URL("bridge-icon-512.png", ROOT).href, new URL("apple-touch-icon.png", ROOT).href];
+
+const PUSH_STORE = "bridge-push-settings";
+const PUSH_KEY = "reminder-schedule";
+function pushDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PUSH_STORE, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("settings");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function saveReminderSchedule(schedule) {
+  const database = await pushDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction("settings", "readwrite");
+    transaction.objectStore("settings").put(schedule, PUSH_KEY);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+async function readReminderSchedule() {
+  const database = await pushDatabase();
+  return new Promise((resolve, reject) => {
+    const request = database.transaction("settings", "readonly").objectStore("settings").get(PUSH_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -39,6 +67,11 @@ self.addEventListener("push", event => {
   ]));
 });
 
+self.addEventListener("message", event => {
+  if (event.data?.type !== "bridge-reminder-schedule" || !event.data.schedule) return;
+  event.waitUntil(saveReminderSchedule(event.data.schedule).catch(() => {}));
+});
+
 self.addEventListener("pushsubscriptionchange", event => {
   event.waitUntil((async () => {
     try {
@@ -47,11 +80,20 @@ self.addEventListener("pushsubscriptionchange", event => {
       const padding = "=".repeat((4 - config.publicKey.length % 4) % 4);
       const key = Uint8Array.from(atob((config.publicKey + padding).replace(/-/g, "+").replace(/_/g, "/")), character => character.charCodeAt(0));
       const subscription = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-      await fetch(new URL("api/push/subscribe", ROOT), {
+      const response = await fetch(new URL("api/push/subscribe", ROOT), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subscription, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
       });
+      const result = await response.json().catch(() => ({}));
+      const schedule = await readReminderSchedule();
+      if (response.ok && result.deviceToken && schedule) {
+        await fetch(new URL("api/push/schedule", ROOT), {
+          method: "PUT",
+          headers: { "Authorization": `Bearer ${result.deviceToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint, schedule })
+        });
+      }
     } catch {}
   })());
 });
