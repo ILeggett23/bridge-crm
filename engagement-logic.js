@@ -6,22 +6,42 @@
     return local.toISOString().slice(0, 10);
   };
 
-  function achievementMetrics(state) {
-    const contacts = state.contacts || [];
-    const counted = contacts.flatMap(contact => contact.conversations || []).filter(log => log.isCountedConversation);
-    const conversationDays = new Map();
-    counted.forEach(log => {
-      const key = dayKey(log.conversationDate || log.createdAt);
-      if (key) conversationDays.set(key, (conversationDays.get(key) || 0) + 1);
-    });
+  function dailyGoalMetrics(state, now = new Date()) {
     const goal = Math.max(1, Number(state.settings?.dailyGoal) || 5);
-    const goalDays = new Set([...conversationDays].filter(([, count]) => count >= goal).map(([key]) => key));
+    const today = dayKey(now);
+    const counts = new Map();
+
+    (state.contacts || []).flatMap(contact => contact.conversations || []).forEach(log => {
+      if (!log.isCountedConversation) return;
+      const occurredAt = new Date(log.conversationDate || log.createdAt);
+      if (Number.isNaN(occurredAt.getTime()) || occurredAt > now) return;
+      const key = dayKey(occurredAt);
+      if (!key || key > today) return;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    const completedDays = new Set([...counts].filter(([, count]) => count >= goal).map(([key]) => key));
     let goalStreak = 0;
-    const cursor = new Date();
-    while (goalDays.has(dayKey(cursor))) {
+    const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    while (completedDays.has(dayKey(cursor))) {
       goalStreak += 1;
       cursor.setDate(cursor.getDate() - 1);
     }
+
+    return {
+      goal,
+      today,
+      todayCount: counts.get(today) || 0,
+      todayComplete: completedDays.has(today),
+      completedDayCount: completedDays.size,
+      goalStreak
+    };
+  }
+
+  function achievementMetrics(state) {
+    const contacts = state.contacts || [];
+    const counted = contacts.flatMap(contact => contact.conversations || []).filter(log => log.isCountedConversation);
+    const dailyGoal = dailyGoalMetrics(state);
     const followUps = contacts.flatMap(contact => contact.followUps || []);
     const completedFollowUps = followUps.filter(item => item.completedAt).length;
     const pipelineEvents = contacts.flatMap(contact => contact.stageEvents || []).filter(event => ["PQI", "QI/P", "FUP", "LA", "CNA"].includes(event.stage));
@@ -34,8 +54,8 @@
       launches: contacts.flatMap(contact => contact.stageEvents || []).filter(event => event.stage === "LA").length,
       favoritePlaces: (state.places || []).filter(place => place.isFavorite).length,
       savedPlaces: (state.places || []).length,
-      goalDays: goalDays.size,
-      goalStreak
+      goalDays: dailyGoal.completedDayCount,
+      goalStreak: dailyGoal.goalStreak
     };
   }
 
@@ -97,5 +117,5 @@
     return events;
   }
 
-  global.BridgeEngagement = Object.freeze({ achievementMetrics, dayKey, definitions, dueReminderEvents, evaluateAchievements });
+  global.BridgeEngagement = Object.freeze({ achievementMetrics, dailyGoalMetrics, dayKey, definitions, dueReminderEvents, evaluateAchievements });
 })(globalThis);
