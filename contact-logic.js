@@ -46,7 +46,7 @@
   }
 
   function shouldArchiveContact(contact, now = Date.now()) {
-    if (contact.archivedAt || contact.role === "Customer" || contact.isFilteredOut) return false;
+    if (contact.archivedAt || contact.role === "Customer" || contact.role === "Team" || contact.isFilteredOut) return false;
     if (Object.values(contact.stages || {}).some(Boolean)) return false;
     if ((contact.followUps || []).some(followUp => !followUp.completedAt)) return false;
     if (contact.checkBackDate && (time(contact.checkBackDate) || 0) > now) return false;
@@ -74,6 +74,11 @@
   }
 
   function setFilteredOut(contact, filtered, changedAt = new Date().toISOString()) {
+    if (contact.role === "Team") {
+      contact.isFilteredOut = false;
+      contact.filteredOutAt = null;
+      return contact;
+    }
     contact.isFilteredOut = Boolean(filtered);
     contact.filteredOutAt = filtered ? (contact.filteredOutAt || changedAt) : null;
     return contact;
@@ -105,8 +110,12 @@
 
   function normalizePipelineStages(contact, validStages) {
     contact.stages = contact.stages && typeof contact.stages === "object" ? contact.stages : {};
-    const current = resolveCurrentPipelineStage(contact, validStages);
-    validStages.forEach(stage => { contact.stages[stage] = stage === current; });
+    const stages = Array.isArray(validStages) ? validStages : [];
+    Object.keys(contact.stages).forEach(stage => {
+      if (stage !== "MSA" && stage !== "DTM" && !stages.includes(stage)) contact.stages[stage] = false;
+    });
+    const current = resolveCurrentPipelineStage(contact, stages);
+    stages.forEach(stage => { contact.stages[stage] = stage === current; });
     return current;
   }
 
