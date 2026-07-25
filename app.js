@@ -593,8 +593,6 @@ function renderDashboard() {
   const launches = state.contacts.filter(contact => contact.stages.LA).length;
   const activeContacts = state.contacts.filter(contact => !contact.archivedAt);
   const streak = dailyGoal.goalStreak;
-  const streakText = `${streak} day${streak === 1 ? "" : "s"} streak`;
-  const streakStatus = dailyGoal.todayComplete ? `${streakText} · Daily goal complete.` : `${streakText} · Complete today's goal to earn a streak.`;
   const upcoming = activeFollowUps();
   const savedFirstName = String(state.settings.firstName || "").trim();
   const dashboardTitle = savedFirstName ? `Hi, ${escapeHTML(savedFirstName)}` : "Dashboard";
@@ -602,7 +600,7 @@ function renderDashboard() {
   const unlockedCount = achievementState.progress.filter(item => item.unlockedAt).length;
   const nextAchievement = achievementState.progress.find(item => !item.unlockedAt);
   return `${pageHead(dashboardTitle, "Your relationship-building work at a glance.", `<button class="icon-button" id="settingsButton" aria-label="Settings">${icons.gear}</button>`)}
-    <div class="card glass"><div class="goal-row"><div class="goal-copy"><span class="eyebrow">Daily conversation goal</span><div class="goal-count">${todayCount} of ${dailyGoal.goal}</div></div><button class="button primary" data-page="add" aria-label="Add conversation">${icons.plus}<span>Add conversation</span></button></div><div class="progress"><span style="width:${Math.min(100,todayCount/dailyGoal.goal*100)}%"></span></div><span class="muted">${streakStatus}</span></div>
+    <div class="card glass"><div class="goal-row"><div class="goal-copy"><span class="eyebrow">Daily conversation goal</span><div class="goal-count">${todayCount} of ${dailyGoal.goal}</div></div><button class="button primary" data-page="add" aria-label="Add conversation">${icons.plus}<span>Add conversation</span></button></div><div class="progress"><span style="width:${Math.min(100,todayCount/dailyGoal.goal*100)}%"></span></div></div>
     <div class="grid stats-grid section-gap">
       ${statCard("userPlus", activeContacts.length, "Contacts")}${statCard("warning", overdue, "Overdue")}${statCard("flag", launches, "Launches")}${statCard("fire", streak, "Streak")}
     </div>
