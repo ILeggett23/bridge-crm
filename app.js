@@ -603,7 +603,27 @@ function renderDashboard() {
     <div class="card glass achievement-preview section-gap"><div class="achievement-preview-icon">${icons.award}</div><div><span class="eyebrow">Achievements</span><h2>${unlockedCount} of ${ACHIEVEMENTS.length} unlocked</h2>${nextAchievement ? `<p class="muted">Next: ${escapeHTML(nextAchievement.name)} · ${Math.min(nextAchievement.current, nextAchievement.target)} of ${nextAchievement.target}</p>` : '<p class="muted">Every Bridge achievement is unlocked.</p>'}</div><button class="button subtle" id="viewAchievements">View all</button></div>`;
 }
 function statCard(icon, value, label) { return `<div class="card stat glass"><div class="stat-icon">${icons[icon]}</div><div><div class="stat-value">${value}</div><div class="muted">${label}</div></div></div>`; }
-function calculateStreak() { const goal = Math.max(1, Number(state.settings.dailyGoal) || 5); const countsByDay = new Map(); for (const log of countedConversations()) { const key = dayKey(log.conversationDate || log.createdAt); if (!key) continue; countsByDay.set(key, (countsByDay.get(key) || 0) + 1); } const qualifiedDays = new Set([...countsByDay.entries()].filter(([, count]) => count >= goal).map(([key]) => key)); let streak = 0; let cursor = startOfDay(new Date()); while (qualifiedDays.has(dayKey(cursor))) { streak += 1; cursor = addDays(cursor, -1); } return streak; }
+function calculateStreak() {
+  const goal = Math.max(1, Number(state.settings.dailyGoal) || 5);
+  const countsByDay = new Map();
+  for (const log of countedConversations()) {
+    const key = dayKey(log.conversationDate || log.createdAt);
+    if (!key) continue;
+    countsByDay.set(key, (countsByDay.get(key) || 0) + 1);
+  }
+  const qualifiedDays = new Set([...countsByDay.entries()].filter(([, count]) => count >= goal).map(([key]) => key));
+  let streak = 0;
+  let cursor = startOfDay(new Date());
+  // Preserve streak through today if today's goal not yet met
+  if (!qualifiedDays.has(dayKey(cursor))) {
+    cursor = addDays(cursor, -1);
+  }
+  while (qualifiedDays.has(dayKey(cursor))) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
+}
 function suggestions(todayCount, overdue) { const list=[]; if(todayCount<state.settings.dailyGoal) list.push({icon:"target",text:`Log ${state.settings.dailyGoal-todayCount} more conversation${state.settings.dailyGoal-todayCount===1?"":"s"} to reach today's goal.`}); if(overdue) list.push({icon:"clock",text:`Reconnect with ${overdue} overdue follow-up${overdue===1?"":"s"}.`}); const high=state.contacts.filter(c=>c.interestLevel==="High"&&!c.isFilteredOut).length; if(high) list.push({icon:"userPlus",text:`${high} high-interest contact${high===1?" is":"s are"} ready for attention.`}); if(!list.length) list.push({icon:"circleCheck",text:"You're caught up. Review your pipeline for the next best conversation."}); return list.slice(0,3); }
 function miniFollowUp(item) { const overdue = new Date(item.dueDate)<new Date(); return `<button class="mini-row" data-contact-id="${item.contact.id}"><div class="avatar">${initials(item.contact.fullName)}</div><div><strong>${escapeHTML(item.contact.fullName)}</strong><span class="muted">${escapeHTML(item.note||"Follow up")}</span></div><div class="row-end"><span class="pill ${overdue?"danger":"accent"}">${overdue?"Overdue · ":""}${fmtDateTime(item.dueDate)}</span></div></button>`; }
 function emptyInline(title, text) { return `<div class="empty"><div><strong>${title}</strong>${text}</div></div>`; }
