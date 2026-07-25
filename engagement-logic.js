@@ -18,6 +18,10 @@
     const goalDays = new Set([...conversationDays].filter(([, count]) => count >= goal).map(([key]) => key));
     let goalStreak = 0;
     const cursor = new Date();
+    // Preserve streak through today if today's goal not yet met
+    if (!goalDays.has(dayKey(cursor))) {
+      cursor.setDate(cursor.getDate() - 1);
+    }
     while (goalDays.has(dayKey(cursor))) {
       goalStreak += 1;
       cursor.setDate(cursor.getDate() - 1);
