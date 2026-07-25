@@ -18,10 +18,6 @@
     const goalDays = new Set([...conversationDays].filter(([, count]) => count >= goal).map(([key]) => key));
     let goalStreak = 0;
     const cursor = new Date();
-    // Preserve streak through today if today's goal not yet met
-    if (!goalDays.has(dayKey(cursor))) {
-      cursor.setDate(cursor.getDate() - 1);
-    }
     while (goalDays.has(dayKey(cursor))) {
       goalStreak += 1;
       cursor.setDate(cursor.getDate() - 1);
@@ -84,7 +80,7 @@
     if (!settings.notificationsEnabled) return [];
     const events = [];
     if (settings.followUpNotifications) {
-      (state.contacts || []).filter(contact => !contact.archivedAt).forEach(contact => {
+      (state.contacts || []).filter(contact => !contact.archivedAt && !contact.isFilteredOut).forEach(contact => {
         (contact.followUps || []).filter(item => !item.completedAt && !item.notificationSentAt).forEach(item => {
           const due = new Date(item.dueDate);
           if (!Number.isNaN(due.getTime()) && due <= now) events.push({ type: "followup", contact, followUp: item });
