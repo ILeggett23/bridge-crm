@@ -28,15 +28,15 @@
     const todayComplete = completedDays.has(today);
     const yesterdayComplete = completedDays.has(yesterday);
 
-    // A streak can only continue from a fully completed prior calendar day.
+    // Keep the last earned streak visible while today's goal is still in progress.
+    // If today ends incomplete, tomorrow starts from an incomplete yesterday and
+    // naturally resets the streak to zero.
+    const streakEndDate = todayComplete ? todayDate : yesterdayDate;
     let goalStreak = 0;
-    if (todayComplete) {
-      goalStreak = 1;
-      const cursor = new Date(yesterdayDate);
-      while (completedDays.has(dayKey(cursor))) {
-        goalStreak += 1;
-        cursor.setDate(cursor.getDate() - 1);
-      }
+    const cursor = new Date(streakEndDate);
+    while (completedDays.has(dayKey(cursor))) {
+      goalStreak += 1;
+      cursor.setDate(cursor.getDate() - 1);
     }
 
     return {
