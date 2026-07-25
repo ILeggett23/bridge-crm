@@ -21,18 +21,31 @@
     });
 
     const completedDays = new Set([...counts].filter(([, count]) => count >= goal).map(([key]) => key));
+    const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterdayDate = new Date(todayDate);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterday = dayKey(yesterdayDate);
+    const todayComplete = completedDays.has(today);
+    const yesterdayComplete = completedDays.has(yesterday);
+
+    // A streak can only continue from a fully completed prior calendar day.
     let goalStreak = 0;
-    const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    while (completedDays.has(dayKey(cursor))) {
-      goalStreak += 1;
-      cursor.setDate(cursor.getDate() - 1);
+    if (todayComplete) {
+      goalStreak = 1;
+      const cursor = new Date(yesterdayDate);
+      while (completedDays.has(dayKey(cursor))) {
+        goalStreak += 1;
+        cursor.setDate(cursor.getDate() - 1);
+      }
     }
 
     return {
       goal,
       today,
       todayCount: counts.get(today) || 0,
-      todayComplete: completedDays.has(today),
+      todayComplete,
+      yesterday,
+      yesterdayComplete,
       completedDayCount: completedDays.size,
       goalStreak
     };
