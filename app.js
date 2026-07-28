@@ -158,7 +158,7 @@ const defaultState = () => ({
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardExpiryDays: 7, scorecardConfirmed: false, scorecardShareBusy: false, scorecardShared: null, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardConfirmed: false, scorecardShareBusy: false, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
 let lastRenderedPage = null;
 let lastRenderedContactMode = null;
 let searchRenderTimer = null;
@@ -565,20 +565,6 @@ function analyticsScorecardData() {
     }
   };
 }
-const scorecardManagementKey = "bridge-scorecard-management-v1";
-function managedScorecards() {
-  try { return JSON.parse(localStorage.getItem(scorecardManagementKey) || "[]").filter(item => item && item.token && item.managementToken); }
-  catch { return []; }
-}
-function saveManagedScorecards(items) {
-  try { localStorage.setItem(scorecardManagementKey, JSON.stringify(items.slice(0, 30))); }
-  catch {}
-}
-function rememberScorecard(item) {
-  const remaining = managedScorecards().filter(existing => existing.token !== item.token);
-  saveManagedScorecards([item, ...remaining]);
-}
-function removeManagedScorecard(token) { saveManagedScorecards(managedScorecards().filter(item => item.token !== token)); }
 function activeFollowUps() { return state.contacts.filter(contact=>!contact.archivedAt).flatMap(contact => contact.followUps.filter(item => !item.completedAt).map(item => ({ ...item, contact }))).sort((a,b) => new Date(a.dueDate)-new Date(b.dueDate)); }
 function stageFor(contact) { return currentPipelineStage(contact) || "No stage"; }
 function stageInputName(stage) { return `stage_${stage.replaceAll(/[^a-zA-Z0-9]/g, "")}`; }
@@ -783,9 +769,7 @@ function scorecardShareModal() {
   const data = analyticsScorecardData();
   const range = data.range;
   const preview = `<div class="grid stats-grid scorecard-preview">${statCard("chart", data.metrics.conversations, "Conversations")}${statCard("contactCard", data.metrics.contacts, "Contacts")}${statCard("people", data.metrics.prospects, "Prospects")}${statCard("target", data.metrics.prospectiveCustomers, "Prospective Customers")}</div>`;
-  const activeLinks = managedScorecards().filter(item => !item.revokedAt && new Date(item.expiresAt) > new Date());
-  const sharedResult = ui.scorecardShared ? `<div class="share-result"><strong>Secure link ready</strong><span class="muted">Expires ${fmtDate(ui.scorecardShared.expiresAt, { month: "short", day: "numeric", year: "numeric" })}</span><div class="form-actions"><button class="button subtle" id="copyCreatedScorecard" type="button">${icons.link}<span>Copy link</span></button><button class="button primary" id="messageCreatedScorecard" type="button">${icons.chat}<span>Message scorecard</span></button></div></div>` : "";
-  return `<div class="modal-backdrop" id="scorecardShareBackdrop"><section class="modal scorecard-share-modal" role="dialog" aria-modal="true" aria-labelledby="shareScorecardTitle"><header class="modal-head"><div><span class="eyebrow">Analytics</span><h2 id="shareScorecardTitle">Share scorecard</h2></div><button class="icon-button close-scorecard-share" type="button" aria-label="Close">${icons.close}</button></header><div class="modal-body"><p class="muted share-period">${escapeHTML(range.label)}</p>${preview}<form id="scorecardShareForm" class="scorecard-share-form"><fieldset><legend>Visibility</legend><label class="share-scope-option"><input type="radio" name="scorecardScope" value="scorecard" ${!ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard only</strong><small>Only the four metrics and selected date range are shared.</small></span></label><label class="share-scope-option"><input type="radio" name="scorecardScope" value="contacts" ${ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard plus new contacts</strong><small>Shares ${data.newContacts.length} contact${data.newContacts.length === 1 ? "" : "s"}: name, role, stage, and place only.</small></span></label></fieldset><label class="field"><span>Link expires</span><select name="scorecardExpiry"><option value="1" ${ui.scorecardExpiryDays === 1 ? "selected" : ""}>In 1 day</option><option value="7" ${ui.scorecardExpiryDays === 7 ? "selected" : ""}>In 7 days</option><option value="30" ${ui.scorecardExpiryDays === 30 ? "selected" : ""}>In 30 days</option></select></label><label class="share-confirmation"><input type="checkbox" name="scorecardConfirmed" ${ui.scorecardConfirmed ? "checked" : ""}><span>I understand this creates a read-only link to the selected scorecard${ui.scorecardIncludeContacts ? " and approved contact details" : ""}.</span></label><p class="settings-note">Phone numbers, notes, follow-ups, private judgements, interest levels, and editing controls are never shared.</p><div class="form-actions"><button class="button subtle close-scorecard-share" type="button">Cancel</button><button class="button primary" type="submit" ${ui.scorecardShareBusy ? "disabled" : ""}>${icons.share}<span>${ui.scorecardShareBusy ? "Creating link" : "Create secure link"}</span></button></div></form>${sharedResult}${activeLinks.length ? `<section class="managed-scorecards"><span class="eyebrow">Active links on this device</span>${activeLinks.map(item => `<div class="managed-scorecard"><div><strong>${escapeHTML(item.periodLabel)}</strong><small class="muted">Expires ${fmtDate(item.expiresAt, { month: "short", day: "numeric" })}</small></div><button type="button" class="button subtle revoke-scorecard" data-scorecard-token="${escapeHTML(item.token)}">Revoke</button></div>`).join("")}</section>` : ""}</div></section></div>`;
+  return `<div class="modal-backdrop" id="scorecardShareBackdrop"><section class="modal scorecard-share-modal" role="dialog" aria-modal="true" aria-labelledby="shareScorecardTitle"><header class="modal-head"><div><span class="eyebrow">Analytics</span><h2 id="shareScorecardTitle">Share scorecard</h2></div><button class="icon-button close-scorecard-share" type="button" aria-label="Close">${icons.close}</button></header><div class="modal-body"><p class="muted share-period">${escapeHTML(range.label)}</p>${preview}<form id="scorecardShareForm" class="scorecard-share-form"><fieldset><legend>Visibility</legend><label class="share-scope-option"><input type="radio" name="scorecardScope" value="scorecard" ${!ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard only</strong><small>Only the four metrics and selected date range are shared.</small></span></label><label class="share-scope-option"><input type="radio" name="scorecardScope" value="contacts" ${ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard plus new contacts</strong><small>Shares ${data.newContacts.length} contact${data.newContacts.length === 1 ? "" : "s"}: name, role, stage, and place only.</small></span></label></fieldset><p class="settings-note scorecard-expiry-note">Each secure link expires seven days after you create it.</p><label class="share-confirmation"><input type="checkbox" name="scorecardConfirmed" ${ui.scorecardConfirmed ? "checked" : ""}><span>I understand this creates a read-only link to the selected scorecard${ui.scorecardIncludeContacts ? " and approved contact details" : ""}.</span></label><p class="settings-note">Phone numbers, notes, follow-ups, private judgements, interest levels, and editing controls are never shared.</p><div class="form-actions scorecard-share-actions"><button class="button subtle" name="shareAction" value="copy" type="submit" ${ui.scorecardShareBusy ? "disabled" : ""}>${icons.link}<span>Copy link</span></button><button class="button primary" name="shareAction" value="message" type="submit" ${ui.scorecardShareBusy ? "disabled" : ""}>${icons.chat}<span>${ui.scorecardShareBusy ? "Creating link" : "Message scorecard"}</span></button></div></form></div></section></div>`;
 }
 
 function renderAnalytics() {
@@ -936,13 +920,13 @@ function bindCommonEvents(){
   $('#viewAchievements')?.addEventListener('click',()=>{ui.achievementsOpen=true;render();});
   $('#settingsBackdrop')?.addEventListener('click',event=>{if(event.target.id==='settingsBackdrop'){ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;render();}});
   $('#contactBackdrop')?.addEventListener('click',event=>{if(event.target.id==='contactBackdrop'&&closeContactDetail())render();});
-  $('#scorecardShareBackdrop')?.addEventListener('click',event=>{if(event.target.id==='scorecardShareBackdrop'){ui.scorecardShareOpen=false;ui.scorecardShared=null;render();}});
-  document.onkeydown=event=>{if(event.key!=="Escape"||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.activityHistoryContactId||ui.communicationContactId||ui.scorecardShareOpen))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.activityHistoryContactId){ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();render();return;}if(ui.scorecardShareOpen){ui.scorecardShareOpen=false;ui.scorecardShared=null;render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;ui.achievementsOpen=false;render();};
+  $('#scorecardShareBackdrop')?.addEventListener('click',event=>{if(event.target.id==='scorecardShareBackdrop'){ui.scorecardShareOpen=false;render();}});
+  document.onkeydown=event=>{if(event.key!=="Escape"||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.activityHistoryContactId||ui.communicationContactId||ui.scorecardShareOpen))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.activityHistoryContactId){ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();render();return;}if(ui.scorecardShareOpen){ui.scorecardShareOpen=false;render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;ui.achievementsOpen=false;render();};
 }
 
 function bindPageEvents(){
   $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsExcludedDatesDraft=[...normalizeExcludedDates(state.settings.streakExcludedDates)];ui.settingsRestRulesDraft=normalizeRestRules(state.settings.streakRestRules);ui.settingsRestFrequencyDraft="once";ui.settingsOpen=true;render();});
-  $('#shareScorecard')?.addEventListener('click',()=>{ui.scorecardShareOpen=true;ui.scorecardShared=null;ui.scorecardConfirmed=false;render();});
+  $('#shareScorecard')?.addEventListener('click',()=>{ui.scorecardShareOpen=true;ui.scorecardConfirmed=false;render();});
   $$('[data-contact-mode]').forEach(button=>button.addEventListener('click',()=>{const nextMode=button.dataset.contactMode;if(ui.contactMode===nextMode)return;if(nextMode==="pipeline"&&["No-Go","Archived"].includes(ui.visibilityFilter))ui.visibilityFilter="Active";ui.contactMode=nextMode;render();}));
   $('#contactSearch')?.addEventListener('input',event=>{ui.search=event.target.value;const cursor=event.target.selectionStart;clearTimeout(searchRenderTimer);searchRenderTimer=setTimeout(()=>{render();const input=$('#contactSearch');input?.focus();input?.setSelectionRange(cursor,cursor);},100);});
   $('#roleFilter')?.addEventListener('change',event=>{ui.roleFilter=event.target.value;render();});
@@ -960,10 +944,6 @@ function bindPageEvents(){
   $('#analyticsCustomEnd')?.addEventListener('change',event=>{ui.analyticsCustomEnd=event.target.value||ui.analyticsCustomStart;if(ui.analyticsCustomEnd<ui.analyticsCustomStart)ui.analyticsCustomStart=ui.analyticsCustomEnd;render();});
 }
 
-function scorecardMessage(scorecard, url) {
-  return `Here's my Bridge scorecard for ${scorecard.periodLabel}: ${scorecardSummary(scorecard)}. ${url}`;
-}
-
 async function copyScorecardLink(url) {
   try {
     await navigator.clipboard?.writeText(url);
@@ -973,9 +953,59 @@ async function copyScorecardLink(url) {
   }
 }
 
-function messageScorecard(scorecard, url) {
-  const body = encodeURIComponent(scorecardMessage(scorecard, url));
+function messageScorecard(url) {
+  const body = encodeURIComponent(url);
   location.href = `sms:?&body=${body}`;
+}
+
+function scorecardPreviewPNG(scorecard) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1200;
+  canvas.height = 630;
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  const dark = document.documentElement.dataset.theme === "dark"
+    || (!document.documentElement.dataset.theme && window.matchMedia?.("(prefers-color-scheme: dark)").matches);
+  const background = dark ? "#0b1016" : "#f3f5f7";
+  const surface = dark ? "#171e26" : "#ffffff";
+  const foreground = dark ? "#f7f9fc" : "#101318";
+  const secondary = dark ? "#aeb8c6" : "#66717f";
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#19aaa7";
+  context.fillStyle = background;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = foreground;
+  context.font = "700 44px -apple-system, BlinkMacSystemFont, sans-serif";
+  context.fillText("Bridge Scorecard", 68, 76);
+  context.fillStyle = secondary;
+  context.font = "500 27px -apple-system, BlinkMacSystemFont, sans-serif";
+  context.fillText(scorecard.periodLabel, 68, 116);
+  const cards = [
+    ["Conversations", scorecard.metrics.conversations],
+    ["Contacts", scorecard.metrics.contacts],
+    ["Prospects", scorecard.metrics.prospects],
+    ["Prospective Customers", scorecard.metrics.prospectiveCustomers]
+  ];
+  cards.forEach(([label, value], index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const x = 68 + column * 548;
+    const y = 154 + row * 218;
+    context.fillStyle = surface;
+    context.beginPath();
+    context.roundRect(x, y, 516, 190, 30);
+    context.fill();
+    context.fillStyle = accent;
+    context.beginPath();
+    context.roundRect(x + 26, y + 25, 54, 54, 16);
+    context.fill();
+    context.fillStyle = foreground;
+    context.font = "750 52px -apple-system, BlinkMacSystemFont, sans-serif";
+    context.fillText(String(value), x + 26, y + 133);
+    context.fillStyle = secondary;
+    context.font = "500 25px -apple-system, BlinkMacSystemFont, sans-serif";
+    context.fillText(label, x + 112, y + 61);
+  });
+  return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
 }
 
 async function createScorecardLink() {
@@ -983,10 +1013,11 @@ async function createScorecardLink() {
   const contacts = ui.scorecardIncludeContacts ? sharedContactsForRange(data.newContacts) : [];
   const ownerName = state.settings.firstName || state.settings.name || "Bridge";
   const snapshot = createSnapshot({ ownerName, range: data.range, metrics: data.metrics, includeContacts: ui.scorecardIncludeContacts, contacts });
+  const previewPNG = scorecardPreviewPNG(snapshot);
   const response = await apiFetch("/api/scorecards", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ scorecard: snapshot, expiresInDays: ui.scorecardExpiryDays })
+    body: JSON.stringify({ scorecard: snapshot, previewPNG })
   });
   const contentType = response.headers.get("content-type") || "";
   const result = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
@@ -995,28 +1026,30 @@ async function createScorecardLink() {
 }
 
 function bindScorecardShareEvents() {
-  $$(".close-scorecard-share").forEach(button => button.addEventListener("click", () => { ui.scorecardShareOpen=false;ui.scorecardShared=null;render(); }));
+  $$(".close-scorecard-share").forEach(button => button.addEventListener("click", () => { ui.scorecardShareOpen=false;render(); }));
   $("#scorecardShareForm")?.addEventListener("change", event => {
     const form = event.currentTarget;
     ui.scorecardIncludeContacts = form.scorecardScope.value === "contacts";
-    ui.scorecardExpiryDays = Number(form.scorecardExpiry.value) || 7;
     ui.scorecardConfirmed = Boolean(form.scorecardConfirmed.checked);
     render();
   });
   $("#scorecardShareForm")?.addEventListener("submit", async event => {
     event.preventDefault();
+    const action = event.submitter?.value === "copy" ? "copy" : "message";
     const form = new FormData(event.currentTarget);
     ui.scorecardIncludeContacts = form.get("scorecardScope") === "contacts";
-    ui.scorecardExpiryDays = Number(form.get("scorecardExpiry")) || 7;
     ui.scorecardConfirmed = form.get("scorecardConfirmed") === "on";
-    if (!ui.scorecardConfirmed) { showToast("Confirm what will be shared before creating the link"); return; }
+    if (!ui.scorecardConfirmed) { showToast("Confirm what will be shared before continuing"); return; }
     ui.scorecardShareBusy = true;
     render();
     try {
       const created = await createScorecardLink();
-      const item = { token: created.token, managementToken: created.managementToken, url: created.url, expiresAt: created.expiresAt, periodLabel: created.snapshot.periodLabel, createdAt: new Date().toISOString() };
-      rememberScorecard(item);
-      ui.scorecardShared = { ...item, snapshot: created.snapshot };
+      if (action === "copy") {
+        await copyScorecardLink(created.url);
+        ui.scorecardShareOpen = false;
+      } else {
+        messageScorecard(created.url);
+      }
     } catch (error) {
       showToast(error?.message || "Bridge could not create a secure scorecard link");
     } finally {
@@ -1024,19 +1057,6 @@ function bindScorecardShareEvents() {
       render();
     }
   });
-  $("#copyCreatedScorecard")?.addEventListener("click", () => copyScorecardLink(ui.scorecardShared?.url));
-  $("#messageCreatedScorecard")?.addEventListener("click", () => { if (ui.scorecardShared) messageScorecard(ui.scorecardShared.snapshot, ui.scorecardShared.url); });
-  $$(".revoke-scorecard").forEach(button => button.addEventListener("click", async () => {
-    const item = managedScorecards().find(entry => entry.token === button.dataset.scorecardToken);
-    if (!item || !confirm("Revoke this shared scorecard link? Anyone with it will lose access.")) return;
-    try {
-      const response = await apiFetch(`/api/scorecards/${encodeURIComponent(item.token)}`, { method: "DELETE", headers: { Authorization: `Bearer ${item.managementToken}` } });
-      if (!response.ok) throw new Error();
-      removeManagedScorecard(item.token);
-      showToast("Scorecard link revoked");
-    } catch { showToast("Bridge could not revoke that link"); }
-    render();
-  }));
 }
 
 function updateNewRoleFields(role) {
