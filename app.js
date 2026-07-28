@@ -1,7 +1,7 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const { archiveInactiveContacts, hasConversationInRange, latestConversationTime, matchesVisibilityFilter, normalizePipelineStages, resolveCurrentPipelineStage, restoreContact, setFilteredOut, sortContacts } = globalThis.BridgeLogic;
-const { dailyGoalMetrics, dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, evaluateAchievements, normalizeExcludedDates } = globalThis.BridgeEngagement;
+const { dailyGoalMetrics, dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, evaluateAchievements, normalizeExcludedDates, normalizeRestRules } = globalThis.BridgeEngagement;
 const { analyticsRange, inAnalyticsRange, uniquePhoneCaptures } = globalThis.BridgeAnalytics;
 const { canonicalPhone, phoneIdentity, telHref, smsHref } = globalThis.BridgeCommunication;
 const { createSnapshot, scorecardSummary } = globalThis.BridgeScorecard || {};
@@ -151,13 +151,14 @@ const defaultState = () => ({
     followUpNotifications: true,
     dailyReminderEnabled: true,
     dailyReminderTime: "09:00",
-    streakExcludedDates: []
+    streakExcludedDates: [],
+    streakRestRules: []
   },
   meta: { version: 5, updatedAt: nowISO(), achievements: {}, dailyReminderSentDate: null }
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardExpiryDays: 7, scorecardConfirmed: false, scorecardShareBusy: false, scorecardShared: null, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "weekly", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardExpiryDays: 7, scorecardConfirmed: false, scorecardShareBusy: false, scorecardShared: null, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
 let lastRenderedPage = null;
 let lastRenderedContactMode = null;
 let searchRenderTimer = null;
@@ -180,6 +181,7 @@ function normalizeState(raw) {
   next.settings.lastName = String(next.settings.lastName || "").trim();
   next.settings.name = [next.settings.firstName, next.settings.lastName].filter(Boolean).join(" ");
   next.settings.streakExcludedDates = normalizeExcludedDates(next.settings.streakExcludedDates);
+  next.settings.streakRestRules = normalizeRestRules(next.settings.streakRestRules);
   next.contacts = Array.isArray(next.contacts) ? next.contacts.map(contact => {
     const filteredOutAt = contact.filteredOutAt || contact.explicitFilteredOutAt || null;
     const stageDates = { ...(contact.stageDates || {}) };
@@ -472,7 +474,7 @@ async function sendBridgeNotification(title, options) {
   if (notificationPermission() !== "granted") return false;
   try {
     const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=57", badge: "./bridge-icon-192.png?v=57", ...options });
+    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=58", badge: "./bridge-icon-192.png?v=58", ...options });
     return true;
   } catch { return false; }
 }
@@ -628,7 +630,7 @@ function render() {
   document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=57" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=58" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -653,13 +655,13 @@ function render() {
 }
 
 function renderSharedScorecard() {
-  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=57" alt=""><strong>Opening shared scorecard</strong></div></main>`;
-  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=57" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=58" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=58" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
   const scorecard = ui.sharedScorecard;
   const metrics = scorecard.metrics || {};
   const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
   const owner = escapeHTML(scorecard.ownerName || "Bridge");
-  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=57" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=58" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
 }
 
 function sharedScorecardContact(contact) {
@@ -817,10 +819,12 @@ function settingsModal() {
   const s=state.settings;
   const selectedAccent=ACCENTS[ui.settingsAccentDraft] ? ui.settingsAccentDraft : s.accent;
   const excludedDates=normalizeExcludedDates(Array.isArray(ui.settingsExcludedDatesDraft) ? ui.settingsExcludedDatesDraft : s.streakExcludedDates);
-  const todayExcluded=excludedDates.includes(todayInput());
+  const restRules=normalizeRestRules(Array.isArray(ui.settingsRestRulesDraft) ? ui.settingsRestRulesDraft : s.streakRestRules);
+  const restFrequency=["weekly","monthly","yearly"].includes(ui.settingsRestFrequencyDraft)?ui.settingsRestFrequencyDraft:"weekly";
+  const todayExcluded=dailyGoalMetrics({...state,settings:{...s,streakExcludedDates:excludedDates,streakRestRules:restRules}}).todayExcluded;
   return `<div class="modal-backdrop" id="settingsBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><header class="modal-head"><h2 id="settingsTitle">Settings</h2><button class="icon-button close-modal" aria-label="Close">${icons.close}</button></header><div class="modal-body"><form id="settingsForm">
     ${settingsSection("Profile & Goals",`${settingsRow("First name",`<input name="firstName" value="${escapeHTML(s.firstName)}" placeholder="First name" autocomplete="given-name">`)}${settingsRow("Last name",`<input name="lastName" value="${escapeHTML(s.lastName)}" placeholder="Last name" autocomplete="family-name">`)}${settingsRow("Business name",`<input name="businessName" value="${escapeHTML(s.businessName)}" placeholder="Business">`)}${settingsRow("Daily goal",`<input name="dailyGoal" type="number" min="1" max="100" value="${s.dailyGoal}">`)}${settingsRow("Weekly goal",`<input name="weeklyGoal" type="number" min="1" max="500" value="${s.weeklyGoal}">`)}${settingsRow("Monthly goal",`<input name="monthlyGoal" type="number" min="1" max="2000" value="${s.monthlyGoal}">`)}`)}
-    ${settingsSection("Streak Settings",`<p class="settings-note streak-settings-copy">Choose dates that should not break your streak when your daily conversation goal is missed. Rest days do not add to your streak or delete completed activity.</p><div class="rest-day-add"><label class="field"><span>Rest day</span><input id="streakRestDate" type="date" aria-label="Rest day date"></label><button class="button subtle" id="addStreakRestDate" type="button">${icons.plus}<span>Add rest day</span></button></div><div id="streakRestDays" class="rest-day-list" aria-live="polite">${restDayRows(excludedDates)}</div><p id="todayRestDayStatus" class="settings-note rest-day-status ${todayExcluded?"active":""}">${todayExcluded?"Today is a rest day. It will be skipped when Bridge measures streak continuity.":"Today is not marked as a rest day."}</p>`)}
+    ${settingsSection("Streak Settings",`<p class="settings-note streak-settings-copy">Schedule recurring rest days that will not break your streak when your daily goal is missed. Rest days preserve continuity without adding to the streak.</p><div class="rest-rule-builder"><label class="field"><span>Repeats</span><select id="streakRestFrequency" aria-label="Rest day repeat frequency"><option value="weekly" ${restFrequency==="weekly"?"selected":""}>Every week</option><option value="monthly" ${restFrequency==="monthly"?"selected":""}>Every month</option><option value="yearly" ${restFrequency==="yearly"?"selected":""}>Every year</option></select></label><div class="rest-rule-panel" data-rest-panel="weekly" ${restFrequency==="weekly"?"":"hidden"}><span class="field-label">Rest days</span><div class="weekday-picker" role="group" aria-label="Weekly rest days">${weekdayButtons()}</div><small>Choose one or more days to skip every week.</small></div><div class="rest-rule-panel" data-rest-panel="monthly" ${restFrequency==="monthly"?"":"hidden"}><label class="field"><span>Day of month</span><input id="monthlyRestDay" type="number" min="1" max="31" inputmode="numeric" placeholder="1–31"></label><small>Months without that date are skipped automatically.</small></div><div class="rest-rule-panel" data-rest-panel="yearly" ${restFrequency==="yearly"?"":"hidden"}><label class="field"><span>Annual rest date</span><input id="yearlyRestDate" type="date" aria-label="Annual rest date"></label><small>The month and day repeat each year.</small></div><button class="button subtle rest-rule-add" id="addStreakRestRule" type="button">${icons.plus}<span>Add schedule</span></button></div><div id="streakRestRules" class="rest-day-list" aria-live="polite">${restRuleRows(restRules)}</div>${excludedDates.length?`<div class="legacy-rest-days"><span class="field-label">One-time rest days</span><p class="settings-note">These previously saved dates remain active until removed.</p><div id="streakRestDays" class="rest-day-list">${restDayRows(excludedDates)}</div></div>`:""}<p id="todayRestDayStatus" class="settings-note rest-day-status ${todayExcluded?"active":""}">${todayExcluded?"Today is a scheduled rest day. It will be skipped when Bridge measures streak continuity.":"Today is an active goal day."}</p>`)}
     ${settingsSection("Workflow",`${settingsRow("Default follow-up",`<select name="defaultFollowUpDays"><option value="1" ${s.defaultFollowUpDays==1?"selected":""}>1 day</option><option value="2" ${s.defaultFollowUpDays==2?"selected":""}>2 days</option><option value="7" ${s.defaultFollowUpDays==7?"selected":""}>1 week</option></select>`)}${settingsRow("Week starts",`<select name="weekStart"><option value="0" ${s.weekStart==0?"selected":""}>Sunday</option><option value="1" ${s.weekStart==1?"selected":""}>Monday</option></select>`)}<div class="settings-row settings-row-explained"><span><strong>Automatically archive inactive contacts after 30 days</strong><small>Contacts with no pipeline stage, no MSA activity, no scheduled follow-up, and no pipeline progress leave the active list after 30 days. Historical activity remains in Analytics.</small></span><input type="checkbox" name="autoArchiveInactive" ${s.autoArchiveInactive?"checked":""}></div><p class="settings-note">${state.contacts.filter(contact=>contact.archivedAt).length} archived contact${state.contacts.filter(contact=>contact.archivedAt).length===1?"":"s"}. View and restore them from the Contacts visibility filter.</p>`)}
     ${settingsSection("Notifications",notificationSettings(s))}
     ${settingsSection("Appearance",`${settingsRow("Theme",`<select name="theme"><option value="system" ${s.theme==="system"?"selected":""}>System</option><option value="light" ${s.theme==="light"?"selected":""}>Light</option><option value="dark" ${s.theme==="dark"?"selected":""}>Dark</option></select>`)}${settingsRow("Accent color",`<div class="accent-options"><input type="hidden" name="accent" value="${escapeHTML(selectedAccent)}">${Object.entries(ACCENTS).map(([name,[color]])=>`<button type="button" class="accent-dot ${selectedAccent===name?"active":""}" data-accent="${name}" title="${name}" aria-label="${name}" aria-pressed="${selectedAccent===name}" style="background:${color};color:${color}"></button>`).join("")}</div>`)}${settingsRow("Compact cards",`<input type="checkbox" name="compact" ${s.compact?"checked":""}>`)}`)}
@@ -830,17 +834,32 @@ function settingsModal() {
 }
 function settingsSection(title,content){return `<section class="settings-section card glass"><h2>${title}</h2>${content}</section>`;}
 function settingsRow(label,control,className=""){return `<div class="settings-row ${className}"><span>${label}</span>${control}</div>`;}
+const WEEKDAY_NAMES=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+function weekdayButtons() {
+  return WEEKDAY_NAMES.map((day,index)=>`<button type="button" class="weekday-button" data-weekday="${index}" aria-pressed="false" aria-label="${day}">${day.slice(0,1)}</button>`).join("");
+}
+function restRuleRows(rules) {
+  if(!rules.length)return '<p class="rest-day-empty">No recurring rest days scheduled.</p>';
+  return rules.map((rule,index)=>{
+    const summary=rule.frequency==="weekly"?`Every week · ${rule.weekdays.map(day=>WEEKDAY_NAMES[day].slice(0,3)).join(", ")}`:rule.frequency==="monthly"?`Every month · Day ${rule.day}`:`Every year · ${fmtDate(`2000-${rule.date}`,{month:"long",day:"numeric"})}`;
+    return `<div class="rest-day-row"><div><strong>${escapeHTML(summary)}</strong><small>Does not add to your streak</small></div><button class="icon-button remove-rest-rule" type="button" data-rest-rule-index="${index}" aria-label="Remove ${escapeHTML(summary)}">${icons.trash}</button></div>`;
+  }).join("");
+}
 function restDayRows(dates) {
   return dates.length ? dates.map(date=>`<div class="rest-day-row"><div><strong>${escapeHTML(fmtDate(date,{weekday:"short",month:"short",day:"numeric",year:"numeric"}))}</strong><small>${escapeHTML(date)}${date===todayInput()?" · Today":""}</small></div><button class="icon-button remove-rest-day" type="button" data-rest-date="${escapeHTML(date)}" aria-label="Remove rest day ${escapeHTML(date)}">${icons.trash}</button></div>`).join("") : '<p class="rest-day-empty">No rest days selected.</p>';
 }
 function refreshRestDayEditor() {
   const dates=normalizeExcludedDates(ui.settingsExcludedDatesDraft);
+  const rules=normalizeRestRules(ui.settingsRestRulesDraft);
   ui.settingsExcludedDatesDraft=dates;
+  ui.settingsRestRulesDraft=rules;
   const list=$("#streakRestDays");
   if(list)list.innerHTML=restDayRows(dates);
-  const todayExcluded=dates.includes(todayInput());
+  const ruleList=$("#streakRestRules");
+  if(ruleList)ruleList.innerHTML=restRuleRows(rules);
+  const todayExcluded=dailyGoalMetrics({...state,settings:{...state.settings,streakExcludedDates:dates,streakRestRules:rules}}).todayExcluded;
   const status=$("#todayRestDayStatus");
-  if(status){status.classList.toggle("active",todayExcluded);status.textContent=todayExcluded?"Today is a rest day. It will be skipped when Bridge measures streak continuity.":"Today is not marked as a rest day.";}
+  if(status){status.classList.toggle("active",todayExcluded);status.textContent=todayExcluded?"Today is a scheduled rest day. It will be skipped when Bridge measures streak continuity.":"Today is an active goal day.";}
 }
 function notificationSettings(s){
   const permission=notificationPermission();
@@ -908,16 +927,16 @@ function bindCommonEvents(){
   $$('[data-contact-id]').forEach(button=>button.addEventListener('click',()=>{ui.detailId=button.dataset.contactId;ui.contactEditing=false;ui.contactEditDirty=false;render();}));
   $$('[data-communication-contact-id]').forEach(link=>link.addEventListener('click',event=>{const contact=state.contacts.find(item=>item.id===link.dataset.communicationContactId);const type=link.dataset.communicationType||"Call";if(!contact||!canonicalPhone(contact.phoneNumber)){event.preventDefault();showToast('Add a valid phone number before using this action');return;}if(!startCommunication(contact.id,type))event.preventDefault();}));
   $$('[data-log-communication-contact-id]').forEach(button=>button.addEventListener('click',()=>openCommunicationLog(button.dataset.logCommunicationContactId,button.dataset.communicationType||"Call")));
-  $('.close-modal')?.addEventListener('click',()=>{if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;render();});
+  $('.close-modal')?.addEventListener('click',()=>{if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;render();});
   $('#viewAchievements')?.addEventListener('click',()=>{ui.achievementsOpen=true;render();});
-  $('#settingsBackdrop')?.addEventListener('click',event=>{if(event.target.id==='settingsBackdrop'){ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;render();}});
+  $('#settingsBackdrop')?.addEventListener('click',event=>{if(event.target.id==='settingsBackdrop'){ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;render();}});
   $('#contactBackdrop')?.addEventListener('click',event=>{if(event.target.id==='contactBackdrop'&&closeContactDetail())render();});
   $('#scorecardShareBackdrop')?.addEventListener('click',event=>{if(event.target.id==='scorecardShareBackdrop'){ui.scorecardShareOpen=false;ui.scorecardShared=null;render();}});
-  document.onkeydown=event=>{if(event.key!=="Escape"||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.activityHistoryContactId||ui.communicationContactId||ui.scorecardShareOpen))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.activityHistoryContactId){ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();render();return;}if(ui.scorecardShareOpen){ui.scorecardShareOpen=false;ui.scorecardShared=null;render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.achievementsOpen=false;render();};
+  document.onkeydown=event=>{if(event.key!=="Escape"||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.activityHistoryContactId||ui.communicationContactId||ui.scorecardShareOpen))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.activityHistoryContactId){ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();render();return;}if(ui.scorecardShareOpen){ui.scorecardShareOpen=false;ui.scorecardShared=null;render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;ui.achievementsOpen=false;render();};
 }
 
 function bindPageEvents(){
-  $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsExcludedDatesDraft=[...normalizeExcludedDates(state.settings.streakExcludedDates)];ui.settingsOpen=true;render();});
+  $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsExcludedDatesDraft=[...normalizeExcludedDates(state.settings.streakExcludedDates)];ui.settingsRestRulesDraft=normalizeRestRules(state.settings.streakRestRules);ui.settingsRestFrequencyDraft="weekly";ui.settingsOpen=true;render();});
   $('#shareScorecard')?.addEventListener('click',()=>{ui.scorecardShareOpen=true;ui.scorecardShared=null;ui.scorecardConfirmed=false;render();});
   $$('[data-contact-mode]').forEach(button=>button.addEventListener('click',()=>{const nextMode=button.dataset.contactMode;if(ui.contactMode===nextMode)return;if(nextMode==="pipeline"&&["No-Go","Archived"].includes(ui.visibilityFilter))ui.visibilityFilter="Active";ui.contactMode=nextMode;render();}));
   $('#contactSearch')?.addEventListener('input',event=>{ui.search=event.target.value;const cursor=event.target.selectionStart;clearTimeout(searchRenderTimer);searchRenderTimer=setTimeout(()=>{render();const input=$('#contactSearch');input?.focus();input?.setSelectionRange(cursor,cursor);},100);});
@@ -1046,12 +1065,41 @@ function handleAddContact(event){
 
 function bindSettingsEvents(){
   $$('.accent-dot').forEach(button=>button.addEventListener('click',()=>{const accent=button.dataset.accent;if(!ACCENTS[accent])return;ui.settingsAccentDraft=accent;const input=$('#settingsForm input[name="accent"]');if(input)input.value=accent;$$('.accent-dot').forEach(dot=>{const selected=dot===button;dot.classList.toggle('active',selected);dot.setAttribute('aria-pressed',String(selected));});}));
-  $('#addStreakRestDate')?.addEventListener('click',()=>{const input=$('#streakRestDate');const value=String(input?.value||'');const normalized=normalizeExcludedDates([value]);if(!normalized.length){showToast('Choose a valid rest day');input?.focus();return;}const dates=normalizeExcludedDates(ui.settingsExcludedDatesDraft);if(dates.includes(value)){showToast('That rest day is already selected');input?.focus();return;}ui.settingsExcludedDatesDraft=normalizeExcludedDates([...dates,value]);refreshRestDayEditor();if(input){input.value='';input.focus();}});
-  $('#streakRestDays')?.addEventListener('click',event=>{const button=event.target.closest('.remove-rest-day');if(!button)return;const value=button.dataset.restDate;ui.settingsExcludedDatesDraft=normalizeExcludedDates(ui.settingsExcludedDatesDraft).filter(date=>date!==value);refreshRestDayEditor();$('#streakRestDate')?.focus();});
+  $('#streakRestFrequency')?.addEventListener('change',event=>{ui.settingsRestFrequencyDraft=event.target.value;$$('[data-rest-panel]').forEach(panel=>{panel.hidden=panel.dataset.restPanel!==ui.settingsRestFrequencyDraft;});});
+  $$('.weekday-button').forEach(button=>button.addEventListener('click',()=>{const selected=button.getAttribute('aria-pressed')!=='true';button.setAttribute('aria-pressed',String(selected));button.classList.toggle('active',selected);}));
+  $('#addStreakRestRule')?.addEventListener('click',()=>{
+    const frequency=String($('#streakRestFrequency')?.value||'weekly');
+    let rule=null;
+    if(frequency==='weekly'){
+      const weekdays=$$('.weekday-button[aria-pressed="true"]').map(button=>Number(button.dataset.weekday));
+      if(!weekdays.length){showToast('Choose at least one weekly rest day');return;}
+      rule={frequency,weekdays};
+    } else if(frequency==='monthly'){
+      const input=$('#monthlyRestDay');
+      const day=Number(input?.value);
+      if(!Number.isInteger(day)||day<1||day>31){showToast('Choose a day from 1 to 31');input?.focus();return;}
+      rule={frequency,day};
+    } else {
+      const input=$('#yearlyRestDate');
+      const value=String(input?.value||'');
+      if(!normalizeRestRules([{frequency,date:value.slice(5)}]).length){showToast('Choose a valid annual rest date');input?.focus();return;}
+      rule={frequency,date:value.slice(5)};
+    }
+    const current=normalizeRestRules(ui.settingsRestRulesDraft);
+    const next=normalizeRestRules([...current,rule]);
+    if(next.length===current.length){showToast('That rest schedule already exists');return;}
+    ui.settingsRestRulesDraft=next;
+    refreshRestDayEditor();
+    $$('.weekday-button').forEach(button=>{button.classList.remove('active');button.setAttribute('aria-pressed','false');});
+    if($('#monthlyRestDay'))$('#monthlyRestDay').value='';
+    if($('#yearlyRestDate'))$('#yearlyRestDate').value='';
+  });
+  $('#streakRestRules')?.addEventListener('click',event=>{const button=event.target.closest('.remove-rest-rule');if(!button)return;const index=Number(button.dataset.restRuleIndex);ui.settingsRestRulesDraft=normalizeRestRules(ui.settingsRestRulesDraft).filter((_,ruleIndex)=>ruleIndex!==index);refreshRestDayEditor();});
+  $('#streakRestDays')?.addEventListener('click',event=>{const button=event.target.closest('.remove-rest-day');if(!button)return;const value=button.dataset.restDate;ui.settingsExcludedDatesDraft=normalizeExcludedDates(ui.settingsExcludedDatesDraft).filter(date=>date!==value);refreshRestDayEditor();});
   $('#requestNotifications')?.addEventListener('click',async()=>{try{pushSubscriptionState='checking';await enableBackgroundPush();queueSave('Background reminders enabled');render();startReminderChecks();}catch(error){await refreshPushSubscriptionState();showToast(error?.message||'Background reminders could not be enabled');render();}});
   $('#testPushNotification')?.addEventListener('click',async()=>{try{const subscription=await currentPushSubscription();const token=pushDeviceToken();if(!subscription||!token)throw new Error('Enable background reminders first');const response=await fetch('/api/push/test-device',{method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({endpoint:subscription.endpoint})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Test notification failed');showToast('Test notification sent');}catch(error){showToast(error?.message||'Test notification failed');}});
   $('#disablePushNotifications')?.addEventListener('click',async()=>{await disableBackgroundPush();state.settings.notificationsEnabled=false;queueSave('Background reminders disabled on this device');render();startReminderChecks();});
-  $('#settingsForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);const accent=String(f.get('accent')||state.settings.accent);const firstName=String(f.get('firstName')||'').trim();const lastName=String(f.get('lastName')||'').trim();state.settings={...state.settings,name:[firstName,lastName].filter(Boolean).join(' '),firstName,lastName,businessName:String(f.get('businessName')||''),dailyGoal:Number(f.get('dailyGoal'))||5,weeklyGoal:Number(f.get('weeklyGoal'))||25,monthlyGoal:Number(f.get('monthlyGoal'))||100,defaultFollowUpDays:Number(f.get('defaultFollowUpDays'))||2,weekStart:Number(f.get('weekStart'))||0,theme:String(f.get('theme')),accent:ACCENTS[accent]?accent:state.settings.accent,compact:f.has('compact'),autoArchiveInactive:f.has('autoArchiveInactive'),notificationsEnabled:f.has('notificationsEnabled')&&notificationPermission()==='granted',followUpNotifications:f.has('followUpNotifications'),dailyReminderEnabled:f.has('dailyReminderEnabled'),dailyReminderTime:String(f.get('dailyReminderTime')||'09:00'),streakExcludedDates:normalizeExcludedDates(ui.settingsExcludedDatesDraft)};const archived=archiveInactiveContacts(state.contacts,state.settings.autoArchiveInactive);ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;applyAppearance();queueSave(archived?`${archived} inactive contact${archived===1?'':'s'} archived`:'Settings saved');ui.settingsOpen=false;render();startReminderChecks();});
+  $('#settingsForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);const accent=String(f.get('accent')||state.settings.accent);const firstName=String(f.get('firstName')||'').trim();const lastName=String(f.get('lastName')||'').trim();state.settings={...state.settings,name:[firstName,lastName].filter(Boolean).join(' '),firstName,lastName,businessName:String(f.get('businessName')||''),dailyGoal:Number(f.get('dailyGoal'))||5,weeklyGoal:Number(f.get('weeklyGoal'))||25,monthlyGoal:Number(f.get('monthlyGoal'))||100,defaultFollowUpDays:Number(f.get('defaultFollowUpDays'))||2,weekStart:Number(f.get('weekStart'))||0,theme:String(f.get('theme')),accent:ACCENTS[accent]?accent:state.settings.accent,compact:f.has('compact'),autoArchiveInactive:f.has('autoArchiveInactive'),notificationsEnabled:f.has('notificationsEnabled')&&notificationPermission()==='granted',followUpNotifications:f.has('followUpNotifications'),dailyReminderEnabled:f.has('dailyReminderEnabled'),dailyReminderTime:String(f.get('dailyReminderTime')||'09:00'),streakExcludedDates:normalizeExcludedDates(ui.settingsExcludedDatesDraft),streakRestRules:normalizeRestRules(ui.settingsRestRulesDraft)};const archived=archiveInactiveContacts(state.contacts,state.settings.autoArchiveInactive);ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;applyAppearance();queueSave(archived?`${archived} inactive contact${archived===1?'':'s'} archived`:'Settings saved');ui.settingsOpen=false;render();startReminderChecks();});
   $('#exportBackup')?.addEventListener('click',()=>downloadFile(`bridge-backup-${todayInput()}.json`,JSON.stringify(state,null,2),'application/json'));
   $('#exportCSV')?.addEventListener('click',()=>{const rows=[['Name','Phone','Role','Interest','Judgement','Conversation Type','Place','Date First Met','Pipeline'],...state.contacts.map(c=>[c.fullName,c.phoneNumber,c.role,c.interestLevel,c.judgement,c.conversationType,c.placeName,c.dateFirstMet,stageFor(c)])];downloadFile(`bridge-contacts-${todayInput()}.csv`,rows.map(r=>r.map(csvCell).join(',')).join('\n'),'text/csv');});
   $('#importBackup')?.addEventListener('change',async event=>{const file=event.target.files?.[0];if(!file)return;try{const imported=normalizeState(JSON.parse(await file.text()));if(!confirm(`Restore ${imported.contacts.length} contacts and replace current Bridge data?`))return;state=imported;applyAppearance();queueSave('Backup restored');ui.settingsOpen=false;render();}catch{showToast('That backup file could not be read');}});
@@ -1102,7 +1150,7 @@ function bindCommunicationLogEvents(){
 }
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=57").catch(() => {}), { once: true });
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=58").catch(() => {}), { once: true });
 }
 
 if (sharedScorecardToken) loadSharedScorecard(sharedScorecardToken);
