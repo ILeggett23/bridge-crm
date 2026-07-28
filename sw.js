@@ -1,6 +1,9 @@
-const CACHE = "bridge-app-v60";
+const CACHE = "bridge-app-v61";
 const ROOT = new URL("./", self.location.href).href;
-const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("contact-logic.js", ROOT).href, new URL("engagement-logic.js", ROOT).href, new URL("communication-logic.js", ROOT).href, new URL("analytics-logic.js", ROOT).href, new URL("scorecard-logic.js", ROOT).href, new URL("app.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("bridge-icon-192.png", ROOT).href, new URL("bridge-icon-512.png", ROOT).href, new URL("apple-touch-icon.png", ROOT).href];
+importScripts(new URL("config.js?v=61", ROOT).href);
+const API_BASE = String(self.BridgeConfig?.apiBase || "").replace(/\/+$/, "");
+const apiURL = path => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("config.js", ROOT).href, new URL("contact-logic.js", ROOT).href, new URL("engagement-logic.js", ROOT).href, new URL("communication-logic.js", ROOT).href, new URL("analytics-logic.js", ROOT).href, new URL("scorecard-logic.js", ROOT).href, new URL("app.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("bridge-icon-192.png", ROOT).href, new URL("bridge-icon-512.png", ROOT).href, new URL("apple-touch-icon.png", ROOT).href];
 
 const PUSH_STORE = "bridge-push-settings";
 const PUSH_KEY = "reminder-schedule";
@@ -55,8 +58,8 @@ self.addEventListener("push", event => {
   const title = payload.title || "Bridge follow-up";
   const options = {
     body: payload.body || "A scheduled follow-up is ready.",
-    icon: new URL("bridge-icon-192.png?v=60", ROOT).href,
-    badge: new URL("bridge-icon-192.png?v=60", ROOT).href,
+    icon: new URL("bridge-icon-192.png?v=61", ROOT).href,
+    badge: new URL("bridge-icon-192.png?v=61", ROOT).href,
     tag: payload.tag || "bridge-followup",
     renotify: false,
     data: { url: payload.url || "./?page=followups" }
@@ -75,12 +78,12 @@ self.addEventListener("message", event => {
 self.addEventListener("pushsubscriptionchange", event => {
   event.waitUntil((async () => {
     try {
-      const config = await fetch(new URL("api/push/config", ROOT)).then(response => response.json());
+      const config = await fetch(apiURL("/api/push/config")).then(response => response.json());
       if (!config.publicKey) return;
       const padding = "=".repeat((4 - config.publicKey.length % 4) % 4);
       const key = Uint8Array.from(atob((config.publicKey + padding).replace(/-/g, "+").replace(/_/g, "/")), character => character.charCodeAt(0));
       const subscription = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-      const response = await fetch(new URL("api/push/subscribe", ROOT), {
+      const response = await fetch(apiURL("/api/push/subscribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subscription, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
@@ -88,7 +91,7 @@ self.addEventListener("pushsubscriptionchange", event => {
       const result = await response.json().catch(() => ({}));
       const schedule = await readReminderSchedule();
       if (response.ok && result.deviceToken && schedule) {
-        await fetch(new URL("api/push/schedule", ROOT), {
+        await fetch(apiURL("/api/push/schedule"), {
           method: "PUT",
           headers: { "Authorization": `Bearer ${result.deviceToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({ endpoint: subscription.endpoint, schedule })
