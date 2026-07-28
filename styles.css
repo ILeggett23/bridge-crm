@@ -254,6 +254,9 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
 .share-scope-option span { min-width: 0; display: grid; gap: 3px; }
 .share-scope-option small { color: var(--muted); line-height: 1.35; }
 .share-confirmation { padding-bottom: 0; border-bottom: 0; color: var(--muted); font-size: 14px; line-height: 1.4; }
+.scorecard-expiry-note { margin: 0; padding: 11px 13px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-muted); }
+.scorecard-share-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.scorecard-share-actions .button { width: 100%; }
 .share-result { display: grid; gap: 7px; padding: 14px; border: 1px solid rgba(var(--accent-rgb), .26); border-radius: var(--radius-control); background: rgba(var(--accent-rgb), .08); }
 .share-result .form-actions { justify-content: flex-start; margin-top: 4px; }
 .managed-scorecards { display: grid; gap: 8px; margin-top: var(--space-5); }
