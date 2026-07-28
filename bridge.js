@@ -53,7 +53,7 @@ const durableCache = {
 
 const PIPELINES = {
   Prospect: ["PQI", "QI/P", "FUP", "LA"],
-  Customer: ["CNA", "Recommendation", "Decision / Follow-Up", "Order Placed", "Active Customer", "Reorder / Retention"]
+  Customer: ["CNA", "Proposal", "Follow-Up", "Order Placed", "Active Customer"]
 };
 const PIPELINE_STAGES = [...new Set([...PIPELINES.Prospect, ...PIPELINES.Customer])];
 const ALL_STAGES = ["MSA", "DTM", ...PIPELINE_STAGES];
@@ -275,7 +275,7 @@ async function sendBridgeNotification(title, options) {
   if (notificationPermission() !== "granted") return false;
   try {
     const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, { icon: "./bridge-icon-192.png", badge: "./bridge-icon-192.png", ...options });
+    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=55", badge: "./bridge-icon-192.png?v=55", ...options });
     return true;
   } catch { return false; }
 }
@@ -349,7 +349,7 @@ function countedConversations(range = null) { return state.contacts.flatMap(cont
 function activeFollowUps() { return state.contacts.filter(contact=>!contact.archivedAt).flatMap(contact => contact.followUps.filter(item => !item.completedAt).map(item => ({ ...item, contact }))).sort((a,b) => new Date(a.dueDate)-new Date(b.dueDate)); }
 function stageFor(contact) { return [...(PIPELINES[contact.role] || [])].reverse().find(stage => contact.stages?.[stage]) || "No stage"; }
 function stageInputName(stage) { return `stage_${stage.replaceAll(/[^a-zA-Z0-9]/g, "")}`; }
-function stageLabel(stage) { return ({ FUP:"Follow-Up", LA:"Launch", "Decision / Follow-Up":"Follow-Up", Recommendation:"Proposal" })[stage] || stage; }
+function stageLabel(stage) { return ({ FUP:"Follow-Up", LA:"Launch" })[stage] || stage; }
 function normalizedPhone(value) { const digits=String(value || "").replace(/\D/g, ""); return digits.length===11&&digits.startsWith("1")?digits.slice(1):digits; }
 function isCallablePhone(value) { return normalizedPhone(value).length >= 7; }
 function phoneHref(value) { const raw = String(value || "").trim(); return `tel:${raw.startsWith("+") ? "+" : ""}${normalizedPhone(raw)}`; }
@@ -386,7 +386,7 @@ function render() {
   document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.callLogContactId));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=55" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -441,26 +441,7 @@ function renderDashboard() {
     <div class="card glass achievement-preview section-gap"><div class="achievement-preview-icon">${icons.award}</div><div><span class="eyebrow">Achievements</span><h2>${unlockedCount} of ${ACHIEVEMENTS.length} unlocked</h2>${nextAchievement ? `<p class="muted">Next: ${escapeHTML(nextAchievement.name)} · ${Math.min(nextAchievement.current, nextAchievement.target)} of ${nextAchievement.target}</p>` : '<p class="muted">Every Bridge achievement is unlocked.</p>'}</div><button class="button subtle" id="viewAchievements">View all</button></div>`;
 }
 function statCard(icon, value, label) { return `<div class="card stat glass"><div class="stat-icon">${icons[icon]}</div><div><div class="stat-value">${value}</div><div class="muted">${label}</div></div></div>`; }
-function calculateStreak() {
-  const goal = Math.max(1, Number(state.settings.dailyGoal) || 5);
-  const countsByDay = new Map();
-  for (const log of countedConversations()) {
-    const key = dayKey(log.conversationDate || log.createdAt);
-    if (!key) continue;
-    countsByDay.set(key, (countsByDay.get(key) || 0) + 1);
-  }
-  const qualifiedDays = new Set([...countsByDay.entries()].filter(([, count]) => count >= goal).map(([key]) => key));
-  let streak = 0;
-  let cursor = startOfDay(new Date());
-  if (!qualifiedDays.has(dayKey(cursor))) {
-    cursor = addDays(cursor, -1);
-  }
-  while (qualifiedDays.has(dayKey(cursor))) {
-    streak += 1;
-    cursor = addDays(cursor, -1);
-  }
-  return streak;
-}
+function calculateStreak() { const days = new Set(countedConversations().map(log => dayKey(log.conversationDate || log.createdAt))); let count=0, cursor=startOfDay(new Date()); while(days.has(dayKey(cursor))){count++;cursor=addDays(cursor,-1);} return count; }
 function suggestions(todayCount, overdue) { const list=[]; if(todayCount<state.settings.dailyGoal) list.push(`Log ${state.settings.dailyGoal-todayCount} more conversation${state.settings.dailyGoal-todayCount===1?"":"s"} to reach today's goal.`); if(overdue) list.push(`Reconnect with ${overdue} overdue follow-up${overdue===1?"":"s"}.`); const high=state.contacts.filter(c=>c.interestLevel==="High"&&!c.isFilteredOut).length; if(high) list.push(`${high} high-interest contact${high===1?" is":"s are"} ready for attention.`); if(!list.length) list.push("You're caught up. Review your pipeline for the next best conversation."); return list.slice(0,3); }
 function miniFollowUp(item) { const overdue = new Date(item.dueDate)<new Date(); return `<button class="mini-row" data-contact-id="${item.contact.id}"><div class="avatar">${initials(item.contact.fullName)}</div><div><strong>${escapeHTML(item.contact.fullName)}</strong><span class="muted">${escapeHTML(item.note||"Follow up")}</span></div><div class="row-end"><span class="pill ${overdue?"danger":"accent"}">${overdue?"Overdue · ":""}${fmtDateTime(item.dueDate)}</span></div></button>`; }
 function emptyInline(title, text) { return `<div class="empty"><div><strong>${title}</strong>${text}</div></div>`; }
@@ -482,7 +463,7 @@ function getFilteredContacts() {
 function nextFollowUpDate(contact){const active=contact.followUps.filter(f=>!f.completedAt).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate))[0];return active?new Date(active.dueDate).getTime():Number.MAX_SAFE_INTEGER;}
 function renderContactList(contacts) { return contacts.length?`<div class="contact-list">${contacts.map(contactCard).join("")}</div>`:emptyInline("No contacts found","Try a different filter or add a new conversation."); }
 function contactCard(contact) { const follow=contact.followUps.filter(f=>!f.completedAt).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate))[0];const latest=latestConversationTime(contact); return `<article class="contact-card glass"><button class="contact-card-open" data-contact-id="${contact.id}" aria-label="Open ${escapeHTML(contact.fullName)}"><div class="avatar">${initials(contact.fullName)}</div><div class="contact-body"><h3>${escapeHTML(contact.fullName)}</h3><div class="contact-meta"><span>${escapeHTML(contact.role)}</span><span>${escapeHTML(contact.interestLevel)} interest</span><span>${escapeHTML(stageFor(contact))}</span>${contact.placeName?`<span>${escapeHTML(contact.placeName)}</span>`:""}${latest?`<span>Last conversation ${fmtDate(new Date(latest).toISOString())}</span>`:""}</div></div><div class="contact-status">${contact.archivedAt?'<span class="pill">Archived</span>':contact.isFilteredOut?'<span class="pill danger">Filtered out</span>':follow?`<span class="pill ${new Date(follow.dueDate)<new Date()?"danger":"accent"}">${fmtDate(follow.dueDate)}</span>`:`<span class="pill">${escapeHTML(contact.judgement)}</span>`}</div></button>${isCallablePhone(contact.phoneNumber)?`<a class="icon-button contact-call" href="${phoneHref(contact.phoneNumber)}" data-call-contact-id="${contact.id}" aria-label="Call ${escapeHTML(contact.fullName)}">${icons.phone}</a>`:""}</article>`; }
-function renderPipelineGroup(role, contacts) { const stages=PIPELINES[role]; return `<section class="pipeline-role-group"><div class="pipeline-role-head"><span class="eyebrow">${role === "Customer" ? "Customer sales pipeline" : "Prospect pipeline"}</span></div><div class="pipeline-board ${role === "Customer" ? "customer-pipeline" : ""}">${stages.map(stage=>{const group=contacts.filter(c=>c.role===role&&stageFor(c)===stage);return `<div class="pipeline-column glass"><div class="column-head"><div><strong>${escapeHTML(stageLabel(stage))}</strong></div><span class="pill">${group.length}</span></div>${group.map(c=>`<button class="pipeline-person" data-contact-id="${c.id}"><strong>${escapeHTML(c.fullName)}</strong><div class="muted">${escapeHTML(c.interestLevel)} interest</div></button>`).join("")||'<span class="muted">No contacts</span>'}</div>`}).join("")}</div></section>`; }
+function renderPipelineGroup(role, contacts) { const stages=PIPELINES[role]; return `<section class="pipeline-role-group"><div class="pipeline-role-head"><span class="eyebrow">${role === "Customer" ? "Customer sales pipeline" : "Prospect pipeline"}</span></div><div class="pipeline-board ${role === "Customer" ? "customer-pipeline" : ""}">${stages.map(stage=>{const group=contacts.filter(c=>c.role===role&&stageFor(c)===stage);return `<div class="pipeline-column glass"><div class="column-head"><strong>${escapeHTML(stageLabel(stage))}</strong><span class="pill">${group.length}</span></div>${group.map(c=>`<button class="pipeline-person" data-contact-id="${c.id}"><strong>${escapeHTML(c.fullName)}</strong><div class="muted">${escapeHTML(c.interestLevel)} interest</div></button>`).join("")||'<span class="muted">No contacts</span>'}</div>`}).join("")}</div></section>`; }
 function renderPipeline(contacts) { const roles=ui.roleFilter==="Prospect"?["Prospect"]:ui.roleFilter==="Customer"?["Customer"]:["Prospect","Customer"]; return `<div class="pipeline-groups">${roles.map(role=>renderPipelineGroup(role,contacts)).join("")}</div>`; }
 function renderPlaces() { const places=state.places.map(place=>({...place,count:state.contacts.filter(c=>c.placeId===place.id||(!c.placeId&&c.placeName===place.name)).length})).sort((a,b)=>Number(b.isFavorite)-Number(a.isFavorite)||b.count-a.count); return places.length?`<div class="grid places-grid">${places.map(place=>`<div class="card place-card glass"><div class="place-title-row"><h2>${escapeHTML(place.name)}</h2>${place.isFavorite?`<span class="favorite-star" role="img" aria-label="Favorite place" title="Favorite place">${icons.star}</span>`:""}</div><div class="place-count">${place.count}<span class="muted place-count-label"> contacts</span></div></div>`).join("")}</div>`:emptyInline("No saved places","Add a place while creating your next contact."); }
 
@@ -500,14 +481,14 @@ function renderAdd() {
         ${field("Saved place",`<select name="placeId"><option value="">None</option>${[...state.places].sort((a,b)=>Number(b.isFavorite)-Number(a.isFavorite)||a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${escapeHTML(p.name)}</option>`).join("")}</select>`)}${field("Create new place",'<input name="newPlaceName" placeholder="Coffee shop, gym, event…">')}
         <label class="check-tile favorite-place-toggle"><input type="checkbox" name="favoritePlace"><span><strong>Favorite place</strong><br><small class="muted">Save this new place as a favorite</small></span></label>
       </div></section>
-      <section class="form-section"><h2>Tracking</h2><div class="card glass"><span class="eyebrow">Standalone activity</span><div class="checks tracking-checks">${stageCheck("MSA")}${stageCheck("DTM")}</div><span class="eyebrow">Pipeline · optional</span><div class="checks pipeline-checks" id="newPipelineChecks">${roleStageChecks("Prospect")}</div></div></section>
+      <section class="form-section"><h2>Tracking</h2><div class="card glass"><span class="eyebrow">Standalone activity</span><div class="checks tracking-checks">${stageCheck("MSA","Made Aware")}${stageCheck("DTM","Drop The Message")}</div><span class="eyebrow">Pipeline · optional</span><div class="checks pipeline-checks" id="newPipelineChecks">${roleStageChecks("Prospect")}</div></div></section>
       <section class="form-section"><h2>What I Learned</h2><div class="card glass grid form-grid">${field("What I Know",'<textarea name="personalInfo" placeholder="Occupation, goals, family, interests, needs, or helpful background"></textarea>',"full")}${field("Conversation notes",'<textarea name="notes" placeholder="What happened in this conversation?"></textarea>',"full")}${field("Check back later",'<input name="checkBackDate" type="datetime-local">')}${field("Follow-up",'<input name="followUpDate" type="datetime-local">')}</div></section>
       <div class="form-actions"><button class="button primary" type="submit">${icons.check}Save conversation</button></div>
     </form>`;
 }
 function field(label, control, cls="") { return `<label class="field ${cls}"><span>${label}</span>${control}</label>`; }
-function stageCheck(stage,{type="checkbox",checked=false}={}) { const name=type==="radio"?"pipelineStage":stageInputName(stage); return `<label class="check-tile"><input type="${type}" name="${name}" value="${escapeHTML(stage)}" ${checked?"checked":""}><span><strong>${escapeHTML(stageLabel(stage))}</strong></span></label>`; }
-function roleStageChecks(role,contact=null) { return PIPELINES[role].map(stage=>stageCheck(stage,{type:"radio",checked:Boolean(contact?.stages?.[stage])})).join(""); }
+function stageCheck(stage,title,{type="checkbox",checked=false,showDescription=true}={}) { const name=type==="radio"?"pipelineStage":stageInputName(stage); const description=showDescription&&title?`<small class="muted">${escapeHTML(title)}</small>`:""; return `<label class="check-tile"><input type="${type}" name="${name}" value="${escapeHTML(stage)}" ${checked?"checked":""}><span><strong>${escapeHTML(stageLabel(stage))}</strong>${description}</span></label>`; }
+function roleStageChecks(role,contact=null) { return PIPELINES[role].map(stage=>stageCheck(stage,"",{type:"radio",checked:Boolean(contact?.stages?.[stage]),showDescription:false})).join(""); }
 
 function renderFollowUps() {
   const items=activeFollowUps(), overdue=items.filter(x=>new Date(x.dueDate)<new Date()), upcoming=items.filter(x=>new Date(x.dueDate)>=new Date());
@@ -572,7 +553,7 @@ function contactInformation(c) {
 }
 
 function contactTracking(c) {
-  return `<section class="card glass contact-tracking"><form id="editTrackingForm"><span class="eyebrow">Standalone activity</span><div class="checks tracking-checks">${editStageCheck(c,"MSA")}${editStageCheck(c,"DTM")}</div><span class="eyebrow">${c.role === "Customer" ? "Customer sales pipeline" : "Pipeline"} · optional</span><div class="checks tracking-checks ${c.role === "Customer" ? "customer-stage-checks" : ""}" id="editPipelineChecks">${roleStageChecks(c.role,c)}</div>${currentPipelineStage(c)?'<button class="button subtle clear-pipeline" id="clearPipelineStage" type="button">Clear pipeline stage</button>':""}<label class="check-tile filtered-out-toggle"><input type="checkbox" name="isFilteredOut" ${c.isFilteredOut?"checked":""}><span><strong>Filtered out / no-go</strong><br><small class="muted">Only enable this when you intentionally remove this person from the opportunity process.</small></span></label><div class="form-actions"><button class="button primary" type="submit">Save tracking</button></div></form></section>`;
+  return `<section class="card glass contact-tracking"><form id="editTrackingForm"><span class="eyebrow">Standalone activity</span><div class="checks tracking-checks">${editStageCheck(c,"MSA","Made Aware")}${editStageCheck(c,"DTM","Drop The Message")}</div><span class="eyebrow">${c.role === "Customer" ? "Customer sales pipeline" : "Pipeline"} · optional</span><div class="checks tracking-checks ${c.role === "Customer" ? "customer-stage-checks" : ""}" id="editPipelineChecks">${roleStageChecks(c.role,c)}</div>${currentPipelineStage(c)?'<button class="button subtle clear-pipeline" id="clearPipelineStage" type="button">Clear pipeline stage</button>':""}<label class="check-tile filtered-out-toggle"><input type="checkbox" name="isFilteredOut" ${c.isFilteredOut?"checked":""}><span><strong>Filtered out / no-go</strong><br><small class="muted">Only enable this when you intentionally remove this person from the opportunity process.</small></span></label><div class="form-actions"><button class="button primary" type="submit">Save tracking</button></div></form></section>`;
 }
 
 function contactModal(id) {
@@ -586,7 +567,7 @@ function contactModal(id) {
     <section class="card glass stack-card"><h2>Place Met</h2><p class="contact-place">${c.placeName?`${escapeHTML(c.placeName)}${state.places.find(place=>place.id===c.placeId)?.isFavorite?`<span class="favorite-star" role="img" aria-label="Favorite place" title="Favorite place">${icons.star}</span>`:""}`:'<span class="muted">No place saved</span>'}</p></section>
     ${c.archivedAt?`<section class="card glass stack-card"><h2>Archived Contact</h2><p class="muted">Archived ${fmtDate(c.archivedAt,{month:"short",day:"numeric",year:"numeric"})}. History remains in Analytics.</p><button class="button" id="restoreContact">Restore to active contacts</button></section>`:""}<div class="danger-zone"><button class="button danger" id="deleteContact">${icons.trash}Delete contact</button></div></aside></div></div></section></div>`;
 }
-function editStageCheck(c,stage){return stageCheck(stage,{checked:Boolean(c.stages?.[stage])});}
+function editStageCheck(c,stage,title){return stageCheck(stage,title,{checked:Boolean(c.stages?.[stage])});}
 function renderLogs(c){const logs=[...c.conversations].sort((a,b)=>new Date(b.conversationDate)-new Date(a.conversationDate));return logs.length?logs.map(log=>`<div class="log-row"><div class="log-row-head"><div><strong>${escapeHTML(log.type||"Activity")}${log.outcome?` · ${escapeHTML(log.outcome)}`:""}</strong><div class="muted">${fmtDateTime(log.conversationDate||log.createdAt)}${log.durationMinutes?` · ${Number(log.durationMinutes)} min`:""}${log.isCountedConversation?' · Counted conversation':' · Note'}</div></div><button class="icon-button delete-log" data-log-id="${log.id}" aria-label="Delete log">${icons.trash}</button></div>${log.notes?`<p>${escapeHTML(log.notes)}</p>`:""}</div>`).join(""):emptyInline("No conversation history","Add a note to start the timeline.");}
 
 function callLogModal(id) {
@@ -659,8 +640,8 @@ function handleAddContact(event){
   if(newPlaceName){let place=state.places.find(p=>p.name.toLowerCase()===newPlaceName.toLowerCase());if(!place){place={id:uid(),name:newPlaceName,isFavorite:form.has('favoritePlace'),createdAt:nowISO()};state.places.push(place);}else if(form.has('favoritePlace'))place.isFavorite=true;placeId=place.id;placeName=place.name;} else if(placeId){placeName=state.places.find(p=>p.id===placeId)?.name||'';}
   const role=String(form.get('role')); const conversationDate=`${form.get('conversationDate')}T12:00:00`; const stages=Object.fromEntries(ALL_STAGES.map(stage=>[stage,false])); const stageDates={};
   for(const stage of ['MSA','DTM']){if(form.has(stageInputName(stage))){stages[stage]=true;stageDates[stage]=conversationDate;}}
-  const selectedPipelineStage=String(form.get('pipelineStage')||'');
-  if(PIPELINES[role].includes(selectedPipelineStage)){stages[selectedPipelineStage]=true;stageDates[selectedPipelineStage]=conversationDate;}
+  if(role==='Customer'){const selected=String(form.get('pipelineStage')||'');if(PIPELINES.Customer.includes(selected)){stages[selected]=true;stageDates[selected]=conversationDate;}}
+  else for(const stage of PIPELINES.Prospect){if(form.has(stageInputName(stage))){stages[stage]=true;stageDates[stage]=conversationDate;}}
   const notes=String(form.get('notes')||'').trim(); const personalInfo=String(form.get('personalInfo')||'').trim(); const phoneNumber=String(form.get('phoneNumber')||'').trim();
   const duplicate=isCallablePhone(phoneNumber)&&state.contacts.find(existing=>normalizedPhone(existing.phoneNumber)===normalizedPhone(phoneNumber));
   if(duplicate){if(!confirm(`${duplicate.fullName} already uses this phone number. Add this as a new conversation on their existing record instead?`))return;duplicate.conversations.push({id:uid(),type:String(form.get('conversationType')),interestLevel:duplicate.interestLevel,notes,createdAt:nowISO(),conversationDate,isCountedConversation:true});if(personalInfo&&!duplicate.personalInfo)duplicate.personalInfo=personalInfo;duplicate.updatedAt=nowISO();queueSave('Conversation added to existing contact');ui.page='contacts';ui.detailId=duplicate.id;render();return;}
@@ -688,7 +669,7 @@ function bindContactModalEvents(){
   $('#contactInfoForm')?.addEventListener('change',()=>{ui.contactEditDirty=true;});
   $('#cancelContactInfoEdit')?.addEventListener('click',()=>{if(discardContactEdit())render();});
   $('#contactInfoForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);const nextRole=String(f.get('role'));const nextPhone=String(f.get('phoneNumber')||'').trim();const duplicate=isCallablePhone(nextPhone)&&state.contacts.find(other=>other.id!==c.id&&normalizedPhone(other.phoneNumber)===normalizedPhone(nextPhone));if(duplicate){showToast(`That phone number already belongs to ${duplicate.fullName}`);return;}c.fullName=String(f.get('fullName')).trim()||c.fullName;c.phoneNumber=nextPhone;c.role=nextRole;c.interestLevel=String(f.get('interestLevel'));c.judgement=String(f.get('judgement'));c.conversationType=String(f.get('conversationType'));c.personalInfo=String(f.get('personalInfo')||'').trim();for(const stage of PIPELINE_STAGES){if(!PIPELINES[nextRole].includes(stage)){c.stages[stage]=false;delete c.stageDates[stage];}}c.updatedAt=nowISO();ui.contactEditing=false;ui.contactEditDirty=false;queueSave('Contact details saved');render();});
-  $('#editTrackingForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);setFilteredOut(c,f.has('isFilteredOut'),nowISO());c.stageEvents=Array.isArray(c.stageEvents)?c.stageEvents:[];for(const stage of ['MSA','DTM']){const checked=f.has(stageInputName(stage));if(checked&&!c.stages[stage]){const occurredAt=nowISO();c.stageDates[stage]=occurredAt;c.stageEvents.push({id:uid(),stage,occurredAt});}if(!checked)delete c.stageDates[stage];c.stages[stage]=checked;}const selected=String(f.get('pipelineStage')||'');setPipelineStage(c,PIPELINES[c.role].includes(selected)?selected:'');c.updatedAt=nowISO();queueSave('Tracking updated');render();});
+  $('#editTrackingForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);setFilteredOut(c,f.has('isFilteredOut'),nowISO());c.stageEvents=Array.isArray(c.stageEvents)?c.stageEvents:[];for(const stage of ['MSA','DTM']){const checked=f.has(stageInputName(stage));if(checked&&!c.stages[stage]){const occurredAt=nowISO();c.stageDates[stage]=occurredAt;c.stageEvents.push({id:uid(),stage,occurredAt});}if(!checked)delete c.stageDates[stage];c.stages[stage]=checked;}if(c.role==='Customer'){const selected=String(f.get('pipelineStage')||'');setPipelineStage(c,PIPELINES.Customer.includes(selected)?selected:'');}else{for(const stage of PIPELINES.Prospect){const checked=f.has(stageInputName(stage));if(checked&&!c.stages[stage]){const occurredAt=nowISO();c.stageDates[stage]=occurredAt;c.stageEvents.push({id:uid(),stage,occurredAt});}if(!checked)delete c.stageDates[stage];c.stages[stage]=checked;}}c.updatedAt=nowISO();queueSave('Tracking updated');render();});
   $('#clearPipelineStage')?.addEventListener('click',()=>{if(!confirm('Clear the current pipeline stage? Historical stage activity will remain.'))return;setPipelineStage(c,'');c.updatedAt=nowISO();queueSave('Pipeline stage cleared');render();});
   $('#addLogForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);c.conversations.push({id:uid(),type:String(f.get('type')),interestLevel:c.interestLevel,notes:String(f.get('notes')).trim(),createdAt:nowISO(),conversationDate:`${f.get('conversationDate')}T12:00:00`,isCountedConversation:false});c.updatedAt=nowISO();queueSave('Note added');render();});
   $$('.delete-log').forEach(button=>button.addEventListener('click',()=>{if(!confirm('Delete this conversation log? The contact will remain.'))return;c.conversations=c.conversations.filter(log=>log.id!==button.dataset.logId);c.updatedAt=nowISO();queueSave('Log deleted');render();}));
@@ -708,7 +689,7 @@ function bindCallLogEvents(){
 }
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}), { once: true });
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=55").catch(() => {}), { once: true });
 }
 
 loadState();
