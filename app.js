@@ -158,7 +158,7 @@ const defaultState = () => ({
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "weekly", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardExpiryDays: 7, scorecardConfirmed: false, scorecardShareBusy: false, scorecardShared: null, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardExpiryDays: 7, scorecardConfirmed: false, scorecardShareBusy: false, scorecardShared: null, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
 let lastRenderedPage = null;
 let lastRenderedContactMode = null;
 let searchRenderTimer = null;
@@ -474,7 +474,7 @@ async function sendBridgeNotification(title, options) {
   if (notificationPermission() !== "granted") return false;
   try {
     const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=58", badge: "./bridge-icon-192.png?v=58", ...options });
+    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=59", badge: "./bridge-icon-192.png?v=59", ...options });
     return true;
   } catch { return false; }
 }
@@ -630,7 +630,7 @@ function render() {
   document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=58" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=59" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -655,13 +655,13 @@ function render() {
 }
 
 function renderSharedScorecard() {
-  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=58" alt=""><strong>Opening shared scorecard</strong></div></main>`;
-  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=58" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=59" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=59" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
   const scorecard = ui.sharedScorecard;
   const metrics = scorecard.metrics || {};
   const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
   const owner = escapeHTML(scorecard.ownerName || "Bridge");
-  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=58" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=59" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
 }
 
 function sharedScorecardContact(contact) {
@@ -820,11 +820,11 @@ function settingsModal() {
   const selectedAccent=ACCENTS[ui.settingsAccentDraft] ? ui.settingsAccentDraft : s.accent;
   const excludedDates=normalizeExcludedDates(Array.isArray(ui.settingsExcludedDatesDraft) ? ui.settingsExcludedDatesDraft : s.streakExcludedDates);
   const restRules=normalizeRestRules(Array.isArray(ui.settingsRestRulesDraft) ? ui.settingsRestRulesDraft : s.streakRestRules);
-  const restFrequency=["weekly","monthly","yearly"].includes(ui.settingsRestFrequencyDraft)?ui.settingsRestFrequencyDraft:"weekly";
+  const restFrequency=["once","weekly","monthly","yearly"].includes(ui.settingsRestFrequencyDraft)?ui.settingsRestFrequencyDraft:"once";
   const todayExcluded=dailyGoalMetrics({...state,settings:{...s,streakExcludedDates:excludedDates,streakRestRules:restRules}}).todayExcluded;
   return `<div class="modal-backdrop" id="settingsBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><header class="modal-head"><h2 id="settingsTitle">Settings</h2><button class="icon-button close-modal" aria-label="Close">${icons.close}</button></header><div class="modal-body"><form id="settingsForm">
     ${settingsSection("Profile & Goals",`${settingsRow("First name",`<input name="firstName" value="${escapeHTML(s.firstName)}" placeholder="First name" autocomplete="given-name">`)}${settingsRow("Last name",`<input name="lastName" value="${escapeHTML(s.lastName)}" placeholder="Last name" autocomplete="family-name">`)}${settingsRow("Business name",`<input name="businessName" value="${escapeHTML(s.businessName)}" placeholder="Business">`)}${settingsRow("Daily goal",`<input name="dailyGoal" type="number" min="1" max="100" value="${s.dailyGoal}">`)}${settingsRow("Weekly goal",`<input name="weeklyGoal" type="number" min="1" max="500" value="${s.weeklyGoal}">`)}${settingsRow("Monthly goal",`<input name="monthlyGoal" type="number" min="1" max="2000" value="${s.monthlyGoal}">`)}`)}
-    ${settingsSection("Streak Settings",`<p class="settings-note streak-settings-copy">Schedule recurring rest days that will not break your streak when your daily goal is missed. Rest days preserve continuity without adding to the streak.</p><div class="rest-rule-builder"><label class="field"><span>Repeats</span><select id="streakRestFrequency" aria-label="Rest day repeat frequency"><option value="weekly" ${restFrequency==="weekly"?"selected":""}>Every week</option><option value="monthly" ${restFrequency==="monthly"?"selected":""}>Every month</option><option value="yearly" ${restFrequency==="yearly"?"selected":""}>Every year</option></select></label><div class="rest-rule-panel" data-rest-panel="weekly" ${restFrequency==="weekly"?"":"hidden"}><span class="field-label">Rest days</span><div class="weekday-picker" role="group" aria-label="Weekly rest days">${weekdayButtons()}</div><small>Choose one or more days to skip every week.</small></div><div class="rest-rule-panel" data-rest-panel="monthly" ${restFrequency==="monthly"?"":"hidden"}><label class="field"><span>Day of month</span><input id="monthlyRestDay" type="number" min="1" max="31" inputmode="numeric" placeholder="1–31"></label><small>Months without that date are skipped automatically.</small></div><div class="rest-rule-panel" data-rest-panel="yearly" ${restFrequency==="yearly"?"":"hidden"}><label class="field"><span>Annual rest date</span><input id="yearlyRestDate" type="date" aria-label="Annual rest date"></label><small>The month and day repeat each year.</small></div><button class="button subtle rest-rule-add" id="addStreakRestRule" type="button">${icons.plus}<span>Add schedule</span></button></div><div id="streakRestRules" class="rest-day-list" aria-live="polite">${restRuleRows(restRules)}</div>${excludedDates.length?`<div class="legacy-rest-days"><span class="field-label">One-time rest days</span><p class="settings-note">These previously saved dates remain active until removed.</p><div id="streakRestDays" class="rest-day-list">${restDayRows(excludedDates)}</div></div>`:""}<p id="todayRestDayStatus" class="settings-note rest-day-status ${todayExcluded?"active":""}">${todayExcluded?"Today is a scheduled rest day. It will be skipped when Bridge measures streak continuity.":"Today is an active goal day."}</p>`)}
+    ${settingsSection("Streak Settings",`<p class="settings-note streak-settings-copy">Rest days protect your streak without adding a day.</p><div class="rest-rule-builder"><label class="field"><span>Repeats</span><select id="streakRestFrequency" aria-label="Rest day repeat frequency"><option value="once" ${restFrequency==="once"?"selected":""}>Does not repeat</option><option value="weekly" ${restFrequency==="weekly"?"selected":""}>Every week</option><option value="monthly" ${restFrequency==="monthly"?"selected":""}>Every month</option><option value="yearly" ${restFrequency==="yearly"?"selected":""}>Every year</option></select></label><div class="rest-rule-panel" data-rest-panel="once" ${restFrequency==="once"?"":"hidden"}><label class="field"><span>Rest date</span><input id="oneTimeRestDate" type="date" aria-label="One-time rest date"></label><small>Applies to this date only.</small></div><div class="rest-rule-panel" data-rest-panel="weekly" ${restFrequency==="weekly"?"":"hidden"}><span class="field-label">Rest days</span><div class="weekday-picker" role="group" aria-label="Weekly rest days">${weekdayButtons()}</div><small>Choose one or more days.</small></div><div class="rest-rule-panel" data-rest-panel="monthly" ${restFrequency==="monthly"?"":"hidden"}><label class="field"><span>Day of month</span><input id="monthlyRestDay" type="number" min="1" max="31" inputmode="numeric" placeholder="1–31"></label><small>Skipped in shorter months.</small></div><div class="rest-rule-panel" data-rest-panel="yearly" ${restFrequency==="yearly"?"":"hidden"}><label class="field"><span>Annual rest date</span><input id="yearlyRestDate" type="date" aria-label="Annual rest date"></label><small>Repeats each year.</small></div><button class="button subtle rest-rule-add" id="addStreakRestRule" type="button">${icons.plus}<span>Add rest day</span></button></div><div class="legacy-rest-days"><span class="field-label">One-time</span><div id="streakRestDays" class="rest-day-list">${restDayRows(excludedDates)}</div></div><div id="streakRestRules" class="rest-day-list" aria-live="polite">${restRuleRows(restRules)}</div><p id="todayRestDayStatus" class="settings-note rest-day-status ${todayExcluded?"active":""}">${todayExcluded?"Today is a rest day.":"Today counts toward your goal."}</p>`)}
     ${settingsSection("Workflow",`${settingsRow("Default follow-up",`<select name="defaultFollowUpDays"><option value="1" ${s.defaultFollowUpDays==1?"selected":""}>1 day</option><option value="2" ${s.defaultFollowUpDays==2?"selected":""}>2 days</option><option value="7" ${s.defaultFollowUpDays==7?"selected":""}>1 week</option></select>`)}${settingsRow("Week starts",`<select name="weekStart"><option value="0" ${s.weekStart==0?"selected":""}>Sunday</option><option value="1" ${s.weekStart==1?"selected":""}>Monday</option></select>`)}<div class="settings-row settings-row-explained"><span><strong>Automatically archive inactive contacts after 30 days</strong><small>Contacts with no pipeline stage, no MSA activity, no scheduled follow-up, and no pipeline progress leave the active list after 30 days. Historical activity remains in Analytics.</small></span><input type="checkbox" name="autoArchiveInactive" ${s.autoArchiveInactive?"checked":""}></div><p class="settings-note">${state.contacts.filter(contact=>contact.archivedAt).length} archived contact${state.contacts.filter(contact=>contact.archivedAt).length===1?"":"s"}. View and restore them from the Contacts visibility filter.</p>`)}
     ${settingsSection("Notifications",notificationSettings(s))}
     ${settingsSection("Appearance",`${settingsRow("Theme",`<select name="theme"><option value="system" ${s.theme==="system"?"selected":""}>System</option><option value="light" ${s.theme==="light"?"selected":""}>Light</option><option value="dark" ${s.theme==="dark"?"selected":""}>Dark</option></select>`)}${settingsRow("Accent color",`<div class="accent-options"><input type="hidden" name="accent" value="${escapeHTML(selectedAccent)}">${Object.entries(ACCENTS).map(([name,[color]])=>`<button type="button" class="accent-dot ${selectedAccent===name?"active":""}" data-accent="${name}" title="${name}" aria-label="${name}" aria-pressed="${selectedAccent===name}" style="background:${color};color:${color}"></button>`).join("")}</div>`)}${settingsRow("Compact cards",`<input type="checkbox" name="compact" ${s.compact?"checked":""}>`)}`)}
@@ -839,10 +839,10 @@ function weekdayButtons() {
   return WEEKDAY_NAMES.map((day,index)=>`<button type="button" class="weekday-button" data-weekday="${index}" aria-pressed="false" aria-label="${day}">${day.slice(0,1)}</button>`).join("");
 }
 function restRuleRows(rules) {
-  if(!rules.length)return '<p class="rest-day-empty">No recurring rest days scheduled.</p>';
+  if(!rules.length)return '<p class="rest-day-empty">No repeating rest days.</p>';
   return rules.map((rule,index)=>{
     const summary=rule.frequency==="weekly"?`Every week · ${rule.weekdays.map(day=>WEEKDAY_NAMES[day].slice(0,3)).join(", ")}`:rule.frequency==="monthly"?`Every month · Day ${rule.day}`:`Every year · ${fmtDate(`2000-${rule.date}`,{month:"long",day:"numeric"})}`;
-    return `<div class="rest-day-row"><div><strong>${escapeHTML(summary)}</strong><small>Does not add to your streak</small></div><button class="icon-button remove-rest-rule" type="button" data-rest-rule-index="${index}" aria-label="Remove ${escapeHTML(summary)}">${icons.trash}</button></div>`;
+    return `<div class="rest-day-row"><div><strong>${escapeHTML(summary)}</strong><small>Streak protected</small></div><button class="icon-button remove-rest-rule" type="button" data-rest-rule-index="${index}" aria-label="Remove ${escapeHTML(summary)}">${icons.trash}</button></div>`;
   }).join("");
 }
 function restDayRows(dates) {
@@ -859,7 +859,7 @@ function refreshRestDayEditor() {
   if(ruleList)ruleList.innerHTML=restRuleRows(rules);
   const todayExcluded=dailyGoalMetrics({...state,settings:{...state.settings,streakExcludedDates:dates,streakRestRules:rules}}).todayExcluded;
   const status=$("#todayRestDayStatus");
-  if(status){status.classList.toggle("active",todayExcluded);status.textContent=todayExcluded?"Today is a scheduled rest day. It will be skipped when Bridge measures streak continuity.":"Today is an active goal day.";}
+  if(status){status.classList.toggle("active",todayExcluded);status.textContent=todayExcluded?"Today is a rest day.":"Today counts toward your goal.";}
 }
 function notificationSettings(s){
   const permission=notificationPermission();
@@ -936,7 +936,7 @@ function bindCommonEvents(){
 }
 
 function bindPageEvents(){
-  $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsExcludedDatesDraft=[...normalizeExcludedDates(state.settings.streakExcludedDates)];ui.settingsRestRulesDraft=normalizeRestRules(state.settings.streakRestRules);ui.settingsRestFrequencyDraft="weekly";ui.settingsOpen=true;render();});
+  $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsExcludedDatesDraft=[...normalizeExcludedDates(state.settings.streakExcludedDates)];ui.settingsRestRulesDraft=normalizeRestRules(state.settings.streakRestRules);ui.settingsRestFrequencyDraft="once";ui.settingsOpen=true;render();});
   $('#shareScorecard')?.addEventListener('click',()=>{ui.scorecardShareOpen=true;ui.scorecardShared=null;ui.scorecardConfirmed=false;render();});
   $$('[data-contact-mode]').forEach(button=>button.addEventListener('click',()=>{const nextMode=button.dataset.contactMode;if(ui.contactMode===nextMode)return;if(nextMode==="pipeline"&&["No-Go","Archived"].includes(ui.visibilityFilter))ui.visibilityFilter="Active";ui.contactMode=nextMode;render();}));
   $('#contactSearch')?.addEventListener('input',event=>{ui.search=event.target.value;const cursor=event.target.selectionStart;clearTimeout(searchRenderTimer);searchRenderTimer=setTimeout(()=>{render();const input=$('#contactSearch');input?.focus();input?.setSelectionRange(cursor,cursor);},100);});
@@ -1068,7 +1068,19 @@ function bindSettingsEvents(){
   $('#streakRestFrequency')?.addEventListener('change',event=>{ui.settingsRestFrequencyDraft=event.target.value;$$('[data-rest-panel]').forEach(panel=>{panel.hidden=panel.dataset.restPanel!==ui.settingsRestFrequencyDraft;});});
   $$('.weekday-button').forEach(button=>button.addEventListener('click',()=>{const selected=button.getAttribute('aria-pressed')!=='true';button.setAttribute('aria-pressed',String(selected));button.classList.toggle('active',selected);}));
   $('#addStreakRestRule')?.addEventListener('click',()=>{
-    const frequency=String($('#streakRestFrequency')?.value||'weekly');
+    const frequency=String($('#streakRestFrequency')?.value||'once');
+    if(frequency==='once'){
+      const input=$('#oneTimeRestDate');
+      const date=String(input?.value||'');
+      const current=normalizeExcludedDates(ui.settingsExcludedDatesDraft);
+      const next=normalizeExcludedDates([...current,date]);
+      if(!date||!next.includes(date)){showToast('Choose a valid rest date');input?.focus();return;}
+      if(next.length===current.length){showToast('That rest day already exists');return;}
+      ui.settingsExcludedDatesDraft=next;
+      refreshRestDayEditor();
+      input.value='';
+      return;
+    }
     let rule=null;
     if(frequency==='weekly'){
       const weekdays=$$('.weekday-button[aria-pressed="true"]').map(button=>Number(button.dataset.weekday));
@@ -1150,7 +1162,7 @@ function bindCommunicationLogEvents(){
 }
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=58").catch(() => {}), { once: true });
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=59").catch(() => {}), { once: true });
 }
 
 if (sharedScorecardToken) loadSharedScorecard(sharedScorecardToken);
