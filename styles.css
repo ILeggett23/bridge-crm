@@ -358,9 +358,18 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
 .settings-row-explained small, .settings-note { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .settings-note { margin: 10px 0 0; }
 .streak-settings-copy { margin: 3px 0 14px; font-size: 13px; }
-.rest-day-add { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
-.rest-day-add .field { min-width: 0; }
-.rest-day-add input { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--surface-strong); }
+.rest-rule-builder { min-width: 0; display: grid; gap: 12px; }
+.rest-rule-builder .field { min-width: 0; }
+.rest-rule-builder select, .rest-rule-builder input { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--surface-strong); }
+.rest-rule-panel { min-width: 0; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--surface-muted); }
+.rest-rule-panel[hidden] { display: none; }
+.rest-rule-panel small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.field-label { color: var(--muted); font-size: 12px; font-weight: 700; }
+.weekday-picker { min-width: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.weekday-button { min-width: 0; min-height: 42px; padding: 0; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-strong); color: var(--text); font-weight: 750; transition: transform var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast), background-color var(--motion-fast); }
+.weekday-button.active, .weekday-button[aria-pressed="true"] { border-color: rgba(var(--accent-rgb), .5); background: rgba(var(--accent-rgb), .14); color: var(--accent); }
+.weekday-button:active { transform: scale(.96); }
+.rest-rule-add { width: 100%; }
 .rest-day-list { min-width: 0; display: grid; margin-top: 12px; border-top: 1px solid var(--line); }
 .rest-day-row { min-width: 0; min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .rest-day-row > div { min-width: 0; display: grid; gap: 3px; }
@@ -368,6 +377,8 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
 .rest-day-row small, .rest-day-empty { color: var(--muted); font-size: 12px; }
 .rest-day-row .icon-button { width: 44px; height: 44px; min-width: 44px; color: var(--danger); box-shadow: none; }
 .rest-day-empty { margin: 12px 0 2px; }
+.legacy-rest-days { margin-top: 18px; }
+.legacy-rest-days > .settings-note { margin-top: 4px; }
 .rest-day-status.active { color: var(--accent); font-weight: 680; }
 .notification-status { min-width: 0; margin: 4px 0 10px; padding: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-radius: 14px; background: var(--surface-muted); }
 .notification-status small { display: block; margin-top: 3px; color: var(--muted); line-height: 1.35; }
@@ -561,8 +572,8 @@ input[type="date"]::-webkit-datetime-edit, input[type="datetime-local"]::-webkit
   .settings-row input[type=checkbox] { align-self: center; margin: 0; }
   .settings-row-time { flex-direction: row; align-items: center; gap: 14px; }
   .settings-row.settings-row-time input.compact-time-control { width: 124px; min-width: 124px; max-width: 124px; flex-basis: 124px; margin-left: auto; margin-right: 2px; }
-  .rest-day-add { grid-template-columns: 1fr; }
-  .rest-day-add .button { width: 100%; }
+  .weekday-picker { gap: 5px; }
+  .weekday-button { min-height: 40px; border-radius: 12px; }
   .accent-options { width: 100%; justify-content: flex-start; }
 }
 
