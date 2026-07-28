@@ -6,10 +6,23 @@
     return local.toISOString().slice(0, 10);
   };
 
+  function normalizeExcludedDates(value) {
+    if (!Array.isArray(value)) return [];
+    const valid = value.filter(item => {
+      if (typeof item !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(item)) return false;
+      const [year, month, day] = item.split("-").map(Number);
+      const date = new Date(year, month - 1, day);
+      return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+    });
+    return [...new Set(valid)].sort();
+  }
+
   function dailyGoalMetrics(state, now = new Date()) {
     const goal = Math.max(1, Number(state.settings?.dailyGoal) || 5);
     const today = dayKey(now);
     const counts = new Map();
+    const excludedDates = normalizeExcludedDates(state.settings?.streakExcludedDates);
+    const excludedDays = new Set(excludedDates.filter(key => key <= today));
 
     (state.contacts || []).flatMap(contact => contact.conversations || []).forEach(log => {
       if (!log.isCountedConversation) return;
@@ -27,14 +40,20 @@
     const yesterday = dayKey(yesterdayDate);
     const todayComplete = completedDays.has(today);
     const yesterdayComplete = completedDays.has(yesterday);
+    const todayExcluded = excludedDays.has(today);
 
     // Keep the last earned streak visible while today's goal is still in progress.
-    // If today ends incomplete, tomorrow starts from an incomplete yesterday and
-    // naturally resets the streak to zero.
-    const streakEndDate = todayComplete ? todayDate : yesterdayDate;
+    // Rest days are neutral: they preserve continuity but never add to the streak.
+    const streakEndDate = todayComplete || todayExcluded ? todayDate : yesterdayDate;
     let goalStreak = 0;
     const cursor = new Date(streakEndDate);
-    while (completedDays.has(dayKey(cursor))) {
+    while (true) {
+      const key = dayKey(cursor);
+      if (excludedDays.has(key)) {
+        cursor.setDate(cursor.getDate() - 1);
+        continue;
+      }
+      if (!completedDays.has(key)) break;
       goalStreak += 1;
       cursor.setDate(cursor.getDate() - 1);
     }
@@ -47,7 +66,9 @@
       yesterday,
       yesterdayComplete,
       completedDayCount: completedDays.size,
-      goalStreak
+      goalStreak,
+      excludedDates,
+      todayExcluded
     };
   }
 
@@ -130,5 +151,5 @@
     return events;
   }
 
-  global.BridgeEngagement = Object.freeze({ achievementMetrics, dailyGoalMetrics, dayKey, definitions, dueReminderEvents, evaluateAchievements });
+  global.BridgeEngagement = Object.freeze({ achievementMetrics, dailyGoalMetrics, dayKey, definitions, dueReminderEvents, evaluateAchievements, normalizeExcludedDates });
 })(globalThis);
