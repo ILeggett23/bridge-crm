@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bridge-crm-api",
+  "main": "worker.js",
+  "compatibility_date": "2026-07-28",
+  "workers_dev": true,
+  "vars": {
+    "BACKEND_ONLY": "true",
+    "ALLOWED_ORIGINS": "https://ileggett23.github.io",
+    "PUBLIC_APP_URL": "https://ileggett23.github.io/bridge-crm/"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bridge-crm-production",
+      "database_id": "bd66b909-f134-40ba-a847-960c7f04249d",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "observability": {
+    "enabled": true
+  }
+}
