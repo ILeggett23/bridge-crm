@@ -477,7 +477,7 @@ async function sendBridgeNotification(title, options) {
   if (notificationPermission() !== "granted") return false;
   try {
     const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=61", badge: "./bridge-icon-192.png?v=61", ...options });
+    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=63", badge: "./bridge-icon-192.png?v=63", ...options });
     return true;
   } catch { return false; }
 }
@@ -619,7 +619,7 @@ function render() {
   document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=61" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=63" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -644,13 +644,13 @@ function render() {
 }
 
 function renderSharedScorecard() {
-  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=61" alt=""><strong>Opening shared scorecard</strong></div></main>`;
-  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=61" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=63" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=63" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
   const scorecard = ui.sharedScorecard;
   const metrics = scorecard.metrics || {};
   const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
   const owner = escapeHTML(scorecard.ownerName || "Bridge");
-  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=61" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=63" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
 }
 
 function sharedScorecardContact(contact) {
@@ -769,7 +769,7 @@ function scorecardShareModal() {
   const data = analyticsScorecardData();
   const range = data.range;
   const preview = `<div class="grid stats-grid scorecard-preview">${statCard("chart", data.metrics.conversations, "Conversations")}${statCard("contactCard", data.metrics.contacts, "Contacts")}${statCard("people", data.metrics.prospects, "Prospects")}${statCard("target", data.metrics.prospectiveCustomers, "Prospective Customers")}</div>`;
-  return `<div class="modal-backdrop" id="scorecardShareBackdrop"><section class="modal scorecard-share-modal" role="dialog" aria-modal="true" aria-labelledby="shareScorecardTitle"><header class="modal-head"><div><span class="eyebrow">Analytics</span><h2 id="shareScorecardTitle">Share scorecard</h2></div><button class="icon-button close-scorecard-share" type="button" aria-label="Close">${icons.close}</button></header><div class="modal-body"><p class="muted share-period">${escapeHTML(range.label)}</p>${preview}<form id="scorecardShareForm" class="scorecard-share-form"><fieldset><legend>Visibility</legend><label class="share-scope-option"><input type="radio" name="scorecardScope" value="scorecard" ${!ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard only</strong><small>Only the four metrics and selected date range are shared.</small></span></label><label class="share-scope-option"><input type="radio" name="scorecardScope" value="contacts" ${ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard plus new contacts</strong><small>Shares ${data.newContacts.length} contact${data.newContacts.length === 1 ? "" : "s"}: name, role, stage, and place only.</small></span></label></fieldset><p class="settings-note scorecard-expiry-note">Each secure link expires seven days after you create it.</p><label class="share-confirmation"><input type="checkbox" name="scorecardConfirmed" ${ui.scorecardConfirmed ? "checked" : ""}><span>I understand this creates a read-only link to the selected scorecard${ui.scorecardIncludeContacts ? " and approved contact details" : ""}.</span></label><p class="settings-note">Phone numbers, notes, follow-ups, private judgements, interest levels, and editing controls are never shared.</p><div class="form-actions scorecard-share-actions"><button class="button subtle" name="shareAction" value="copy" type="submit" ${ui.scorecardShareBusy ? "disabled" : ""}>${icons.link}<span>Copy link</span></button><button class="button primary" name="shareAction" value="message" type="submit" ${ui.scorecardShareBusy ? "disabled" : ""}>${icons.chat}<span>${ui.scorecardShareBusy ? "Creating link" : "Message scorecard"}</span></button></div></form></div></section></div>`;
+  return `<div class="modal-backdrop" id="scorecardShareBackdrop"><section class="modal scorecard-share-modal" role="dialog" aria-modal="true" aria-labelledby="shareScorecardTitle"><header class="modal-head"><div><span class="eyebrow">Analytics</span><h2 id="shareScorecardTitle">Share scorecard</h2></div><button class="icon-button close-scorecard-share" type="button" aria-label="Close">${icons.close}</button></header><div class="modal-body"><p class="muted share-period">${escapeHTML(range.label)}</p>${preview}<form id="scorecardShareForm" class="scorecard-share-form"><fieldset><legend>Live scorecard visibility</legend><label class="share-scope-option"><input type="radio" name="scorecardScope" value="scorecard" ${!ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard only</strong><small>Only the four metrics and selected date range are shared.</small></span></label><label class="share-scope-option"><input type="radio" name="scorecardScope" value="contacts" ${ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard plus new contacts</strong><small>Shares ${data.newContacts.length} contact${data.newContacts.length === 1 ? "" : "s"}: name, role, stage, and place only.</small></span></label></fieldset><p class="settings-note scorecard-expiry-note">Live scorecard links expire seven days after creation. Image sharing includes only the four metrics and date range.</p><label class="share-confirmation"><input type="checkbox" name="scorecardConfirmed" ${ui.scorecardConfirmed ? "checked" : ""}><span>I understand what will be included in the scorecard I share.</span></label><p class="settings-note">Phone numbers, notes, follow-ups, private judgements, interest levels, and editing controls are never shared.</p><div class="form-actions scorecard-share-actions"><button class="button subtle" name="shareAction" value="image" type="submit" ${ui.scorecardShareBusy ? "disabled" : ""}>${icons.share}<span>${ui.scorecardShareBusy ? "Preparing" : "Share as image"}</span></button><button class="button primary" name="shareAction" value="message" type="submit" ${ui.scorecardShareBusy ? "disabled" : ""}>${icons.chat}<span>${ui.scorecardShareBusy ? "Preparing" : "Message live scorecard"}</span></button></div></form></div></section></div>`;
 }
 
 function renderAnalytics() {
@@ -944,18 +944,16 @@ function bindPageEvents(){
   $('#analyticsCustomEnd')?.addEventListener('change',event=>{ui.analyticsCustomEnd=event.target.value||ui.analyticsCustomStart;if(ui.analyticsCustomEnd<ui.analyticsCustomStart)ui.analyticsCustomStart=ui.analyticsCustomEnd;render();});
 }
 
-async function copyScorecardLink(url) {
-  try {
-    await navigator.clipboard?.writeText(url);
-    showToast("Secure scorecard link copied");
-  } catch {
-    prompt("Copy this secure scorecard link", url);
-  }
-}
-
 function messageScorecard(url) {
   const body = encodeURIComponent(url);
   location.href = `sms:?&body=${body}`;
+}
+
+function scorecardSnapshot({ includeContacts = ui.scorecardIncludeContacts } = {}) {
+  const data = analyticsScorecardData();
+  const contacts = includeContacts ? sharedContactsForRange(data.newContacts) : [];
+  const ownerName = state.settings.firstName || state.settings.name || "Bridge";
+  return createSnapshot({ ownerName, range: data.range, metrics: data.metrics, includeContacts, contacts });
 }
 
 function scorecardPreviewPNG(scorecard) {
@@ -1008,11 +1006,41 @@ function scorecardPreviewPNG(scorecard) {
   return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
 }
 
+function scorecardImageFile(scorecard) {
+  const base64 = scorecardPreviewPNG(scorecard);
+  if (!base64) throw new Error("Bridge could not prepare the scorecard image");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  const rangeName = String(scorecard.periodLabel || "scorecard")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return new File([bytes], `bridge-scorecard-${rangeName || "scorecard"}.png`, { type: "image/png" });
+}
+
+async function shareScorecardImage() {
+  const scorecard = scorecardSnapshot({ includeContacts: false });
+  const file = scorecardImageFile(scorecard);
+  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    await navigator.share({ files: [file], title: "Bridge Scorecard" });
+    return true;
+  }
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.name;
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("Scorecard image downloaded");
+  return true;
+}
+
 async function createScorecardLink() {
-  const data = analyticsScorecardData();
-  const contacts = ui.scorecardIncludeContacts ? sharedContactsForRange(data.newContacts) : [];
-  const ownerName = state.settings.firstName || state.settings.name || "Bridge";
-  const snapshot = createSnapshot({ ownerName, range: data.range, metrics: data.metrics, includeContacts: ui.scorecardIncludeContacts, contacts });
+  const snapshot = scorecardSnapshot();
   const previewPNG = scorecardPreviewPNG(snapshot);
   const response = await apiFetch("/api/scorecards", {
     method: "POST",
@@ -1035,7 +1063,7 @@ function bindScorecardShareEvents() {
   });
   $("#scorecardShareForm")?.addEventListener("submit", async event => {
     event.preventDefault();
-    const action = event.submitter?.value === "copy" ? "copy" : "message";
+    const action = event.submitter?.value === "image" ? "image" : "message";
     const form = new FormData(event.currentTarget);
     ui.scorecardIncludeContacts = form.get("scorecardScope") === "contacts";
     ui.scorecardConfirmed = form.get("scorecardConfirmed") === "on";
@@ -1043,14 +1071,15 @@ function bindScorecardShareEvents() {
     ui.scorecardShareBusy = true;
     render();
     try {
-      const created = await createScorecardLink();
-      if (action === "copy") {
-        await copyScorecardLink(created.url);
+      if (action === "image") {
+        await shareScorecardImage();
         ui.scorecardShareOpen = false;
       } else {
+        const created = await createScorecardLink();
         messageScorecard(created.url);
       }
     } catch (error) {
+      if (error?.name === "AbortError") return;
       showToast(error?.message || "Bridge could not create a secure scorecard link");
     } finally {
       ui.scorecardShareBusy = false;
@@ -1187,7 +1216,7 @@ function bindCommunicationLogEvents(){
 }
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=61").catch(() => {}), { once: true });
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=63").catch(() => {}), { once: true });
 }
 
 if (sharedScorecardToken) loadSharedScorecard(sharedScorecardToken);
