@@ -17,12 +17,51 @@
     return [...new Set(valid)].sort();
   }
 
+  function normalizeRestRules(value) {
+    if (!Array.isArray(value)) return [];
+    const normalized = value.flatMap(rule => {
+      if (!rule || typeof rule !== "object") return [];
+      if (rule.frequency === "weekly") {
+        const weekdays = [...new Set((Array.isArray(rule.weekdays) ? rule.weekdays : []).map(Number).filter(day => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b);
+        return weekdays.length ? [{ frequency: "weekly", weekdays }] : [];
+      }
+      if (rule.frequency === "monthly") {
+        const day = Number(rule.day);
+        return Number.isInteger(day) && day >= 1 && day <= 31 ? [{ frequency: "monthly", day }] : [];
+      }
+      if (rule.frequency === "yearly") {
+        const date = String(rule.date || "");
+        if (!/^\d{2}-\d{2}$/.test(date)) return [];
+        const [month, day] = date.split("-").map(Number);
+        const candidate = new Date(2000, month - 1, day);
+        return candidate.getMonth() === month - 1 && candidate.getDate() === day ? [{ frequency: "yearly", date }] : [];
+      }
+      return [];
+    });
+    const seen = new Set();
+    return normalized.filter(rule => {
+      const key = rule.frequency === "weekly" ? `weekly:${rule.weekdays.join(",")}` : rule.frequency === "monthly" ? `monthly:${rule.day}` : `yearly:${rule.date}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function matchesRestRule(date, rule) {
+    if (rule.frequency === "weekly") return rule.weekdays.includes(date.getDay());
+    if (rule.frequency === "monthly") return date.getDate() === rule.day;
+    if (rule.frequency === "yearly") return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}` === rule.date;
+    return false;
+  }
+
   function dailyGoalMetrics(state, now = new Date()) {
     const goal = Math.max(1, Number(state.settings?.dailyGoal) || 5);
     const today = dayKey(now);
     const counts = new Map();
     const excludedDates = normalizeExcludedDates(state.settings?.streakExcludedDates);
+    const restRules = normalizeRestRules(state.settings?.streakRestRules);
     const excludedDays = new Set(excludedDates.filter(key => key <= today));
+    const isExcludedDay = date => excludedDays.has(dayKey(date)) || restRules.some(rule => matchesRestRule(date, rule));
 
     (state.contacts || []).flatMap(contact => contact.conversations || []).forEach(log => {
       if (!log.isCountedConversation) return;
@@ -40,7 +79,7 @@
     const yesterday = dayKey(yesterdayDate);
     const todayComplete = completedDays.has(today);
     const yesterdayComplete = completedDays.has(yesterday);
-    const todayExcluded = excludedDays.has(today);
+    const todayExcluded = isExcludedDay(todayDate);
 
     // Keep the last earned streak visible while today's goal is still in progress.
     // Rest days are neutral: they preserve continuity but never add to the streak.
@@ -49,7 +88,7 @@
     const cursor = new Date(streakEndDate);
     while (true) {
       const key = dayKey(cursor);
-      if (excludedDays.has(key)) {
+      if (isExcludedDay(cursor)) {
         cursor.setDate(cursor.getDate() - 1);
         continue;
       }
@@ -68,6 +107,7 @@
       completedDayCount: completedDays.size,
       goalStreak,
       excludedDates,
+      restRules,
       todayExcluded
     };
   }
@@ -151,5 +191,5 @@
     return events;
   }
 
-  global.BridgeEngagement = Object.freeze({ achievementMetrics, dailyGoalMetrics, dayKey, definitions, dueReminderEvents, evaluateAchievements, normalizeExcludedDates });
+  global.BridgeEngagement = Object.freeze({ achievementMetrics, dailyGoalMetrics, dayKey, definitions, dueReminderEvents, evaluateAchievements, normalizeExcludedDates, normalizeRestRules });
 })(globalThis);
