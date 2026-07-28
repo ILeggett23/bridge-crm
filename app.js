@@ -5,10 +5,18 @@ const { dailyGoalMetrics, dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, 
 const { analyticsRange, inAnalyticsRange, uniquePhoneCaptures } = globalThis.BridgeAnalytics;
 const { canonicalPhone, phoneIdentity, telHref, smsHref } = globalThis.BridgeCommunication;
 const { createSnapshot, scorecardSummary } = globalThis.BridgeScorecard || {};
+const { APP_RELEASE, markReleaseSeen, readLastSeenVersion, shouldShowRelease } = globalThis.BridgeRelease;
 const bridgeStyles = $$('link[data-bridge-styles]');
 if (bridgeStyles.length > 1) {
-  const styleVersion = link => Number(new URL(link.href).searchParams.get("v")) || 0;
-  const currentStyle = bridgeStyles.reduce((latest, link) => styleVersion(link) > styleVersion(latest) ? link : latest);
+  const styleVersion = link => String(new URL(link.href).searchParams.get("v") || "").replace(/^v/, "").split(".").map(value => Number(value) || 0);
+  const compareVersions = (left, right) => {
+    const length = Math.max(left.length, right.length);
+    for (let index = 0; index < length; index += 1) {
+      if ((left[index] || 0) !== (right[index] || 0)) return (left[index] || 0) - (right[index] || 0);
+    }
+    return 0;
+  };
+  const currentStyle = bridgeStyles.reduce((latest, link) => compareVersions(styleVersion(link), styleVersion(latest)) > 0 ? link : latest);
   bridgeStyles.forEach(link => { if (link !== currentStyle) link.remove(); });
 }
 const uid = () => globalThis.crypto?.randomUUID?.() || `bridge-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -158,10 +166,11 @@ const defaultState = () => ({
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardConfirmed: false, scorecardShareBusy: false, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardConfirmed: false, scorecardShareBusy: false, releaseNotesOpen: false, releaseNotesPending: false, releaseNotesReturnToSettings: false, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
 let lastRenderedPage = null;
 let lastRenderedContactMode = null;
 let searchRenderTimer = null;
+let releaseFocusReturn = null;
 const launchParams = new URLSearchParams(location.search);
 if (["dashboard", "contacts", "add", "followups", "analytics"].includes(launchParams.get("page"))) ui.page = launchParams.get("page");
 if (launchParams.get("contact")) ui.detailId = launchParams.get("contact");
@@ -251,6 +260,7 @@ async function loadState() {
     syncAchievements(false);
     applyAppearance();
     render();
+    queueAutomaticReleaseNotes();
     await refreshPushSubscriptionState();
     startReminderChecks();
     return;
@@ -271,6 +281,7 @@ async function loadState() {
   syncAchievements(false);
   applyAppearance();
   render();
+  queueAutomaticReleaseNotes();
   await refreshPushSubscriptionState();
   startReminderChecks();
 }
@@ -477,7 +488,7 @@ async function sendBridgeNotification(title, options) {
   if (notificationPermission() !== "granted") return false;
   try {
     const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=64", badge: "./bridge-icon-192.png?v=64", ...options });
+    await registration.showNotification(title, { icon: `./bridge-icon-192.png?v=${APP_RELEASE.version}`, badge: `./bridge-icon-192.png?v=${APP_RELEASE.version}`, ...options });
     return true;
   } catch { return false; }
 }
@@ -616,10 +627,10 @@ function render() {
   }
   const shouldAnimatePage = lastRenderedPage !== ui.page;
   const shouldAnimateContactMode = ui.page === "contacts" && lastRenderedPage === "contacts" && lastRenderedContactMode !== ui.contactMode;
-  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen));
+  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.releaseNotesOpen));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=64" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.64" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -630,7 +641,7 @@ function render() {
       <div class="nav-spacer"></div><div class="sync-status">${cloudStateAvailable ? "Cloud synced" : "Saved on this device"}</div>
     </aside>
     <main class="main"><section class="page ${shouldAnimatePage ? "page-enter" : shouldAnimateContactMode ? "mode-enter" : ""}">${renderPage()}</section></main>
-  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}${ui.scorecardShareOpen ? scorecardShareModal() : ""}`;
+  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}${ui.scorecardShareOpen ? scorecardShareModal() : ""}${ui.releaseNotesOpen ? releaseNotesModal() : ""}`;
   lastRenderedPage = ui.page;
   if (ui.page === "contacts") lastRenderedContactMode = ui.contactMode;
   bindCommonEvents();
@@ -641,16 +652,18 @@ function render() {
   if (ui.activityHistoryContactId) bindActivityHistoryEvents();
   if (ui.communicationContactId) bindCommunicationLogEvents();
   if (ui.scorecardShareOpen) bindScorecardShareEvents();
+  if (ui.releaseNotesOpen) bindReleaseNotesEvents();
+  else if (ui.releaseNotesPending && !blockingModalOpen()) setTimeout(maybePresentReleaseNotes, 0);
 }
 
 function renderSharedScorecard() {
-  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=64" alt=""><strong>Opening shared scorecard</strong></div></main>`;
-  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=64" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.64" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.64" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
   const scorecard = ui.sharedScorecard;
   const metrics = scorecard.metrics || {};
   const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
   const owner = escapeHTML(scorecard.ownerName || "Bridge");
-  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=64" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.64" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
 }
 
 function sharedScorecardContact(contact) {
@@ -660,6 +673,57 @@ function sharedScorecardContact(contact) {
 
 function bindSharedScorecardEvents() {
   $("#toggleSharedContacts")?.addEventListener("click", () => { ui.sharedScorecardContactsOpen = !ui.sharedScorecardContactsOpen; render(); });
+}
+
+function blockingModalOpen() {
+  return Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen);
+}
+
+function queueAutomaticReleaseNotes() {
+  if (!shouldShowRelease(readLastSeenVersion(), APP_RELEASE)) return;
+  ui.releaseNotesPending = true;
+  setTimeout(maybePresentReleaseNotes, 0);
+}
+
+function maybePresentReleaseNotes() {
+  if (!ui.releaseNotesPending || ui.releaseNotesOpen || blockingModalOpen() || sharedScorecardToken) return;
+  releaseFocusReturn = document.activeElement;
+  ui.releaseNotesPending = false;
+  ui.releaseNotesOpen = true;
+  ui.releaseNotesReturnToSettings = false;
+  render();
+}
+
+function releaseNotesModal() {
+  const items = APP_RELEASE.items.map(item => `<li class="release-note-item"><div class="release-note-icon">${icons[item.icon] || icons.sparkles}</div><div><h3>${escapeHTML(item.title)}</h3><p>${escapeHTML(item.description)}</p></div></li>`).join("");
+  return `<div class="modal-backdrop release-notes-backdrop" id="releaseNotesBackdrop"><section class="modal release-notes-modal" role="dialog" aria-modal="true" aria-labelledby="releaseNotesTitle" aria-describedby="releaseNotesVersion"><div class="release-notes-scroll"><header class="release-notes-header"><img class="release-notes-mark" src="./bridge-icon-192.png?v=1.1.64" alt=""><h2 id="releaseNotesTitle">${escapeHTML(APP_RELEASE.title)}</h2><p id="releaseNotesVersion">Version ${escapeHTML(APP_RELEASE.version)}</p></header><ul class="release-notes-list">${items}</ul></div><footer class="release-notes-actions"><button class="button primary" id="continueReleaseNotes" type="button">${icons.circleCheck}<span>Continue</span></button></footer></section></div>`;
+}
+
+function releaseFocusableElements() {
+  return $$('#releaseNotesBackdrop button:not([disabled]), #releaseNotesBackdrop [href], #releaseNotesBackdrop input:not([disabled]), #releaseNotesBackdrop select:not([disabled]), #releaseNotesBackdrop textarea:not([disabled]), #releaseNotesBackdrop [tabindex]:not([tabindex="-1"])');
+}
+
+function closeReleaseNotes() {
+  markReleaseSeen(undefined, APP_RELEASE);
+  ui.releaseNotesOpen = false;
+  const returnToSettings = ui.releaseNotesReturnToSettings;
+  ui.releaseNotesReturnToSettings = false;
+  if (returnToSettings) {
+    ui.settingsOpen = true;
+    render();
+    requestAnimationFrame(() => $("#openReleaseNotes")?.focus());
+    return;
+  }
+  render();
+  requestAnimationFrame(() => {
+    if (releaseFocusReturn?.isConnected) releaseFocusReturn.focus();
+    releaseFocusReturn = null;
+  });
+}
+
+function bindReleaseNotesEvents() {
+  $("#continueReleaseNotes")?.addEventListener("click", closeReleaseNotes);
+  requestAnimationFrame(() => $("#continueReleaseNotes")?.focus());
 }
 
 function navButton(page, label, icon) { const active=ui.page===page; return `<button type="button" class="nav-button ${active ? "active" : ""}" data-page="${page}" aria-label="${label}" ${active ? 'aria-current="page"' : ""}>${icons[icon]}<span>${label}</span></button>`; }
@@ -816,6 +880,7 @@ function settingsModal() {
     ${settingsSection("Notifications",notificationSettings(s))}
     ${settingsSection("Appearance",`${settingsRow("Theme",`<select name="theme"><option value="system" ${s.theme==="system"?"selected":""}>System</option><option value="light" ${s.theme==="light"?"selected":""}>Light</option><option value="dark" ${s.theme==="dark"?"selected":""}>Dark</option></select>`)}${settingsRow("Accent color",`<div class="accent-options"><input type="hidden" name="accent" value="${escapeHTML(selectedAccent)}">${Object.entries(ACCENTS).map(([name,[color]])=>`<button type="button" class="accent-dot ${selectedAccent===name?"active":""}" data-accent="${name}" title="${name}" aria-label="${name}" aria-pressed="${selectedAccent===name}" style="background:${color};color:${color}"></button>`).join("")}</div>`)}${settingsRow("Compact cards",`<input type="checkbox" name="compact" ${s.compact?"checked":""}>`)}`)}
     ${settingsSection("Data & Backup",`${settingsRow("Download all Bridge data",`<button type="button" class="button subtle" id="exportBackup">${icons.download}JSON</button>`)}${settingsRow("Export contacts",`<button type="button" class="button subtle" id="exportCSV">${icons.download}CSV</button>`)}${settingsRow("Restore from backup",`<label class="button subtle">Choose file<input id="importBackup" type="file" accept="application/json" hidden></label>`)}`)}
+    ${settingsSection("About",`${settingsRow("Version",`<strong>${escapeHTML(APP_RELEASE.version)}</strong>`)}${settingsRow("What's New",`<button type="button" class="button subtle" id="openReleaseNotes">${icons.sparkles}<span>View</span></button>`)}`)}
     ${settingsSection("Support",`${settingsRow("Send feedback",`<a class="button subtle" href="mailto:fountainofyouthxs@gmail.com?subject=Bridge%20Feedback">Email</a>`)}${settingsRow("Report a bug",`<a class="button subtle" href="mailto:fountainofyouthxs@gmail.com?subject=Bridge%20Bug%20Report">Email</a>`)}`)}
     <div class="form-actions"><button class="button primary" type="submit">Save settings</button></div></form></div></section></div>`;
 }
@@ -921,7 +986,23 @@ function bindCommonEvents(){
   $('#settingsBackdrop')?.addEventListener('click',event=>{if(event.target.id==='settingsBackdrop'){ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;render();}});
   $('#contactBackdrop')?.addEventListener('click',event=>{if(event.target.id==='contactBackdrop'&&closeContactDetail())render();});
   $('#scorecardShareBackdrop')?.addEventListener('click',event=>{if(event.target.id==='scorecardShareBackdrop'){ui.scorecardShareOpen=false;render();}});
-  document.onkeydown=event=>{if(event.key!=="Escape"||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.activityHistoryContactId||ui.communicationContactId||ui.scorecardShareOpen))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.activityHistoryContactId){ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();render();return;}if(ui.scorecardShareOpen){ui.scorecardShareOpen=false;render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;ui.achievementsOpen=false;render();};
+  document.onkeydown=event=>{
+    if(ui.releaseNotesOpen){
+      if(event.key!=="Tab")return;
+      const focusable=releaseFocusableElements();
+      if(!focusable.length)return;
+      const first=focusable[0],last=focusable[focusable.length-1];
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+      return;
+    }
+    if(event.key!=="Escape"||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.activityHistoryContactId||ui.communicationContactId||ui.scorecardShareOpen))return;
+    if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}
+    if(ui.activityHistoryContactId){ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();render();return;}
+    if(ui.scorecardShareOpen){ui.scorecardShareOpen=false;render();return;}
+    if(ui.detailId&&!closeContactDetail())return;
+    ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;ui.achievementsOpen=false;render();
+  };
 }
 
 function bindPageEvents(){
@@ -1195,6 +1276,7 @@ function handleAddContact(event){
 }
 
 function bindSettingsEvents(){
+  $('#openReleaseNotes')?.addEventListener('click',()=>{releaseFocusReturn=document.activeElement;ui.settingsOpen=false;ui.releaseNotesReturnToSettings=true;ui.releaseNotesOpen=true;render();});
   $$('.accent-dot').forEach(button=>button.addEventListener('click',()=>{const accent=button.dataset.accent;if(!ACCENTS[accent])return;ui.settingsAccentDraft=accent;const input=$('#settingsForm input[name="accent"]');if(input)input.value=accent;$$('.accent-dot').forEach(dot=>{const selected=dot===button;dot.classList.toggle('active',selected);dot.setAttribute('aria-pressed',String(selected));});}));
   $('#streakRestFrequency')?.addEventListener('change',event=>{ui.settingsRestFrequencyDraft=event.target.value;$$('[data-rest-panel]').forEach(panel=>{panel.hidden=panel.dataset.restPanel!==ui.settingsRestFrequencyDraft;});});
   $$('.weekday-button').forEach(button=>button.addEventListener('click',()=>{const selected=button.getAttribute('aria-pressed')!=='true';button.setAttribute('aria-pressed',String(selected));button.classList.toggle('active',selected);}));
@@ -1293,7 +1375,7 @@ function bindCommunicationLogEvents(){
 }
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=64").catch(() => {}), { once: true });
+  window.addEventListener("load", () => navigator.serviceWorker.register(`./sw.js?v=${APP_RELEASE.version}`).catch(() => {}), { once: true });
 }
 
 if (sharedScorecardToken) loadSharedScorecard(sharedScorecardToken);
