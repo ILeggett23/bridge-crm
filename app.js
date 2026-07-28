@@ -4,6 +4,7 @@ const { archiveInactiveContacts, hasConversationInRange, latestConversationTime,
 const { dailyGoalMetrics, dayKey, definitions: ACHIEVEMENTS, dueReminderEvents, evaluateAchievements } = globalThis.BridgeEngagement;
 const { analyticsRange, inAnalyticsRange, uniquePhoneCaptures } = globalThis.BridgeAnalytics;
 const { canonicalPhone, phoneIdentity, telHref, smsHref } = globalThis.BridgeCommunication;
+const { createSnapshot, scorecardSummary } = globalThis.BridgeScorecard;
 const bridgeStyles = $$('link[data-bridge-styles]');
 if (bridgeStyles.length > 1) {
   const styleVersion = link => Number(new URL(link.href).searchParams.get("v")) || 0;
@@ -54,11 +55,20 @@ const durableCache = {
 
 const PIPELINES = {
   Prospect: ["PQI", "QI/P", "FUP", "LA"],
-  Customer: ["CNA", "Recommendation", "Decision / Follow-Up", "Order Placed", "Customer Onboarding", "Active Customer", "Reorder / Retention"],
+  Customer: ["CNA", "Proposal", "Follow-Up", "Order Placed", "Active Customer"],
   Team: []
 };
+const LEGACY_PIPELINE_ALIASES = {
+  Customer: {
+    Recommendation: "Proposal",
+    "Decision / Follow-Up": "Follow-Up",
+    "Customer Onboarding": "Active Customer",
+    "Reorder / Retention": "Active Customer"
+  }
+};
+const LEGACY_PIPELINE_STAGES = Object.values(LEGACY_PIPELINE_ALIASES).flatMap(aliases => Object.keys(aliases));
 const PIPELINE_STAGES = [...new Set([...PIPELINES.Prospect, ...PIPELINES.Customer])];
-const ALL_STAGES = ["MSA", "DTM", ...PIPELINE_STAGES];
+const ALL_STAGES = ["MSA", "DTM", ...new Set([...PIPELINE_STAGES, ...LEGACY_PIPELINE_STAGES])];
 const CONVERSATION_TYPES = ["Prospecting", "Product Discussion", "Sampling", "Team-Check In", "Follow-Up", "Other"];
 const INTERESTS = ["Unsure", "Low", "Medium", "High"];
 const CALL_OUTCOMES = ["Connected", "No answer", "Left voicemail", "Busy", "Wrong number", "Follow-up needed"];
@@ -110,6 +120,7 @@ const icons = {
   tags: icon('<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414L10 20l10-10Z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/><path d="m13.5 6.5 4 4"/>'),
   archive: icon('<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/>'),
   link: icon('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'),
+  share: icon('<path d="M12 16V3"/><path d="m7 8 5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>'),
   network: icon('<rect x="9" y="2" width="6" height="6" rx="2"/><rect x="2" y="16" width="6" height="6" rx="2"/><rect x="16" y="16" width="6" height="6" rx="2"/><path d="M12 8v4M5 16v-2h14v2"/>'),
   trophy: icon('<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M7 6H4v2a4 4 0 0 0 4 4M17 6h3v2a4 4 0 0 1-4 4"/>'),
   sparkles: icon('<path d="m12 3-1.5 3.5L7 8l3.5 1.5L12 13l1.5-3.5L17 8l-3.5-1.5ZM5 15l-.75 1.75L2.5 17.5l1.75.75L5 20l.75-1.75 1.75-.75-1.75-.75ZM19 14l-1 2.5-2.5 1 2.5 1L19 21l1-2.5 2.5-1-2.5-1Z"/>'),
@@ -145,13 +156,14 @@ const defaultState = () => ({
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, achievementsOpen: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardExpiryDays: 7, scorecardConfirmed: false, scorecardShareBusy: false, scorecardShared: null, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
 let lastRenderedPage = null;
 let lastRenderedContactMode = null;
 let searchRenderTimer = null;
 const launchParams = new URLSearchParams(location.search);
 if (["dashboard", "contacts", "add", "followups", "analytics"].includes(launchParams.get("page"))) ui.page = launchParams.get("page");
 if (launchParams.get("contact")) ui.detailId = launchParams.get("contact");
+const sharedScorecardToken = String(launchParams.get("shared") || "").trim();
 const cloudStateAvailable = document.querySelector('meta[name="bridge-cloud-state"]')?.content === "enabled";
 
 function normalizeState(raw) {
@@ -168,7 +180,7 @@ function normalizeState(raw) {
   next.settings.name = [next.settings.firstName, next.settings.lastName].filter(Boolean).join(" ");
   next.contacts = Array.isArray(next.contacts) ? next.contacts.map(contact => {
     const filteredOutAt = contact.filteredOutAt || contact.explicitFilteredOutAt || null;
-    const stageDates = contact.stageDates || {};
+    const stageDates = { ...(contact.stageDates || {}) };
     const stageEvents = Array.isArray(contact.stageEvents) ? contact.stageEvents.map(event => ({ ...event, id: event.id || uid(), occurredAt: event.occurredAt || event.date || contact.updatedAt || contact.createdAt || nowISO() })) : ALL_STAGES.filter(stage => Boolean(contact.stages?.[stage]?.isComplete ?? contact.stages?.[stage])).map(stage => ({ id: uid(), stage, occurredAt: stageDates[stage] || contact.updatedAt || contact.createdAt || nowISO() }));
     const conversations = Array.isArray(contact.conversations) ? contact.conversations.map(log => {
       const communicationType = log.communicationType || (log.type === "Call" ? "Call" : ["Text", "Text Message"].includes(log.type) ? "Text" : null);
@@ -178,9 +190,17 @@ function normalizeState(raw) {
     const inferredCapturedPhone = String(contact.capturedPhoneNumber || contact.phoneNumber || "").trim();
     const phoneCapturedAt = contact.phoneCapturedAt || (inferredCapturedPhone && firstCountedConversation ? (firstCountedConversation.conversationDate || firstCountedConversation.createdAt) : null);
     const role = ["Prospect", "Customer", "Team"].includes(contact.role) ? contact.role : "Prospect";
+    const stageAliases = LEGACY_PIPELINE_ALIASES[role] || {};
+    const migratedStageValues = { ...(contact.stages || {}) };
+    Object.entries(stageAliases).forEach(([legacyStage, currentStage]) => {
+      if (Boolean(contact.stages?.[legacyStage]?.isComplete ?? contact.stages?.[legacyStage])) migratedStageValues[currentStage] = true;
+      const legacyDate = stageDates[legacyStage];
+      if (legacyDate && (!stageDates[currentStage] || new Date(legacyDate) > new Date(stageDates[currentStage]))) stageDates[currentStage] = legacyDate;
+    });
     const validCurrentStages = new Set(["MSA", "DTM", ...(PIPELINES[role] || [])]);
-    const stages = Object.fromEntries(ALL_STAGES.map(stage => [stage, validCurrentStages.has(stage) && Boolean(contact.stages?.[stage]?.isComplete ?? contact.stages?.[stage])]));
-    normalizePipelineStages({ stages, stageDates, stageEvents }, PIPELINES[role]);
+    const stages = Object.fromEntries(ALL_STAGES.map(stage => [stage, validCurrentStages.has(stage) && Boolean(migratedStageValues?.[stage]?.isComplete ?? migratedStageValues?.[stage])]));
+    const currentStageEvents = stageEvents.map(event => ({ ...event, stage: stageAliases[event.stage] || event.stage }));
+    normalizePipelineStages({ stages, stageDates, stageEvents: currentStageEvents }, PIPELINES[role]);
     const currentStageDates = Object.fromEntries(Object.entries(stageDates).filter(([stage]) => ALL_STAGES.includes(stage)));
     return {
       id: contact.id || uid(), fullName: contact.fullName || "Unnamed Contact", phoneNumber: contact.phoneNumber || "", role,
@@ -246,6 +266,24 @@ async function loadState() {
   render();
   await refreshPushSubscriptionState();
   startReminderChecks();
+}
+
+async function loadSharedScorecard(token) {
+  ui.sharedScorecardLoading = true;
+  render();
+  try {
+    const response = await fetch(`/api/scorecards/${encodeURIComponent(token)}`, { headers: { Accept: "application/json" } });
+    const contentType = response.headers.get("content-type") || "";
+    const result = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
+    if (!response.ok || !result.scorecard) throw new Error(result.error || "This scorecard link has expired or is no longer available.");
+    ui.sharedScorecard = result.scorecard;
+    document.title = `${ui.sharedScorecard.ownerName || "Bridge"}'s Scorecard`;
+  } catch (error) {
+    ui.sharedScorecardError = error?.message || "This scorecard link has expired or is no longer available.";
+  } finally {
+    ui.sharedScorecardLoading = false;
+    render();
+  }
 }
 
 function queueSave(message = "Saved") {
@@ -432,7 +470,7 @@ async function sendBridgeNotification(title, options) {
   if (notificationPermission() !== "granted") return false;
   try {
     const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, { icon: "./bridge-icon-192.png", badge: "./bridge-icon-192.png", ...options });
+    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=54", badge: "./bridge-icon-192.png?v=54", ...options });
     return true;
   } catch { return false; }
 }
@@ -504,11 +542,40 @@ function addDays(date, amount) { const copy = new Date(date); copy.setDate(copy.
 function rangeForAnalytics() { return analyticsRange({ mode: ui.analyticsRange, anchor: ui.analyticsAnchor, customStart: ui.analyticsCustomStart, customEnd: ui.analyticsCustomEnd, weekStart: state.settings.weekStart }); }
 function inRange(value, range) { return inAnalyticsRange(value, range); }
 function countedConversations(range = null) { return state.contacts.flatMap(contact => contact.conversations.map(log => ({ ...log, contact }))).filter(log => log.isCountedConversation && (!range || inRange(log.conversationDate || log.createdAt, range))); }
+function analyticsScorecardData() {
+  const range = rangeForAnalytics();
+  const conversations = countedConversations(range);
+  const newContacts = state.contacts.filter(contact => inRange(contact.dateFirstMet, range));
+  return {
+    range,
+    conversations,
+    newContacts,
+    metrics: {
+      conversations: conversations.length,
+      contacts: uniquePhoneCaptures(state.contacts, range).length,
+      prospects: newContacts.filter(contact => contact.role === "Prospect").length,
+      prospectiveCustomers: newContacts.filter(contact => contact.role === "Customer").length
+    }
+  };
+}
+const scorecardManagementKey = "bridge-scorecard-management-v1";
+function managedScorecards() {
+  try { return JSON.parse(localStorage.getItem(scorecardManagementKey) || "[]").filter(item => item && item.token && item.managementToken); }
+  catch { return []; }
+}
+function saveManagedScorecards(items) {
+  try { localStorage.setItem(scorecardManagementKey, JSON.stringify(items.slice(0, 30))); }
+  catch {}
+}
+function rememberScorecard(item) {
+  const remaining = managedScorecards().filter(existing => existing.token !== item.token);
+  saveManagedScorecards([item, ...remaining]);
+}
+function removeManagedScorecard(token) { saveManagedScorecards(managedScorecards().filter(item => item.token !== token)); }
 function activeFollowUps() { return state.contacts.filter(contact=>!contact.archivedAt).flatMap(contact => contact.followUps.filter(item => !item.completedAt).map(item => ({ ...item, contact }))).sort((a,b) => new Date(a.dueDate)-new Date(b.dueDate)); }
 function stageFor(contact) { return currentPipelineStage(contact) || "No stage"; }
 function stageInputName(stage) { return `stage_${stage.replaceAll(/[^a-zA-Z0-9]/g, "")}`; }
-function stageTitle(stage) { return ({ PQI:"Pre-Qualifying Interview", "QI/P":"Quality Interview / Plan", FUP:"Follow-Up", LA:"Launch", CNA:"Customer Needs Assessment", Recommendation:"Personalized recommendation", "Decision / Follow-Up":"Decision and follow-up", "Order Placed":"Order placed", "Customer Onboarding":"Customer onboarding", "Active Customer":"Active customer", "Reorder / Retention":"Reorder and retention" })[stage] || stage; }
-function stageLabel(stage) { return stage === "CNA" ? "CNA — Customer Needs Assessment" : stage; }
+function stageLabel(stage) { return ({ FUP:"Follow-Up", LA:"Launch" })[stage] || stage; }
 function normalizedPhone(value) { return phoneIdentity(value); }
 function isCallablePhone(value) { return Boolean(canonicalPhone(value)); }
 function phoneHref(value) { return telHref(value) || "#"; }
@@ -548,12 +615,18 @@ function offerPendingCommunication() {
 
 function render() {
   const app = $("#app");
+  if (ui.sharedScorecard || ui.sharedScorecardLoading || ui.sharedScorecardError) {
+    document.body.classList.remove("modal-open");
+    app.innerHTML = renderSharedScorecard();
+    bindSharedScorecardEvents();
+    return;
+  }
   const shouldAnimatePage = lastRenderedPage !== ui.page;
   const shouldAnimateContactMode = ui.page === "contacts" && lastRenderedPage === "contacts" && lastRenderedContactMode !== ui.contactMode;
-  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId));
+  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=54" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -564,7 +637,7 @@ function render() {
       <div class="nav-spacer"></div><div class="sync-status">${cloudStateAvailable ? "Cloud synced" : "Saved on this device"}</div>
     </aside>
     <main class="main"><section class="page ${shouldAnimatePage ? "page-enter" : shouldAnimateContactMode ? "mode-enter" : ""}">${renderPage()}</section></main>
-  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}`;
+  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}${ui.scorecardShareOpen ? scorecardShareModal() : ""}`;
   lastRenderedPage = ui.page;
   if (ui.page === "contacts") lastRenderedContactMode = ui.contactMode;
   bindCommonEvents();
@@ -574,6 +647,26 @@ function render() {
   if (ui.detailId) bindContactModalEvents();
   if (ui.activityHistoryContactId) bindActivityHistoryEvents();
   if (ui.communicationContactId) bindCommunicationLogEvents();
+  if (ui.scorecardShareOpen) bindScorecardShareEvents();
+}
+
+function renderSharedScorecard() {
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=54" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=54" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  const scorecard = ui.sharedScorecard;
+  const metrics = scorecard.metrics || {};
+  const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
+  const owner = escapeHTML(scorecard.ownerName || "Bridge");
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=54" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+}
+
+function sharedScorecardContact(contact) {
+  const meta = [contact.role, contact.pipelineStage, contact.placeName].filter(Boolean).map(escapeHTML).join(" · ");
+  return `<article class="shared-contact-row"><div class="avatar">${escapeHTML(contact.initials || initials(contact.name))}</div><div><strong>${escapeHTML(contact.name)}</strong>${meta ? `<span class="muted">${meta}</span>` : ""}</div></article>`;
+}
+
+function bindSharedScorecardEvents() {
+  $("#toggleSharedContacts")?.addEventListener("click", () => { ui.sharedScorecardContactsOpen = !ui.sharedScorecardContactsOpen; render(); });
 }
 
 function navButton(page, label, icon) { const active=ui.page===page; return `<button type="button" class="nav-button ${active ? "active" : ""}" data-page="${page}" aria-label="${label}" ${active ? 'aria-current="page"' : ""}>${icons[icon]}<span>${label}</span></button>`; }
@@ -632,7 +725,7 @@ function getFilteredContacts() {
 function nextFollowUpDate(contact){const active=contact.followUps.filter(f=>!f.completedAt).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate))[0];return active?new Date(active.dueDate).getTime():Number.MAX_SAFE_INTEGER;}
 function renderContactList(contacts) { return contacts.length?`<div class="contact-list">${contacts.map(contactCard).join("")}</div>`:emptyInline("No contacts found","Try a different filter or add a new conversation."); }
 function contactCard(contact) { const follow=contact.followUps.filter(f=>!f.completedAt).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate))[0];const latest=latestConversationTime(contact);const team=contact.role==="Team";const meta=[`<span>${escapeHTML(contact.role)}</span>`,!team?`<span>${escapeHTML(contact.interestLevel)} interest</span>`:"",!team?`<span>${escapeHTML(stageFor(contact))}</span>`:"",contact.placeName?`<span>${escapeHTML(contact.placeName)}</span>`:"",latest?`<span>Last conversation ${fmtDate(new Date(latest).toISOString())}</span>`:""].filter(Boolean).join("");const status=contact.archivedAt?'<span class="pill">Archived</span>':contact.isFilteredOut?'<span class="pill danger">No-Go</span>':follow?`<span class="pill ${new Date(follow.dueDate)<new Date()?"danger":"accent"}">${fmtDate(follow.dueDate)}</span>`:team?"":`<span class="pill">${escapeHTML(contact.judgement)}</span>`; return `<article class="contact-card glass"><button class="contact-card-open" data-contact-id="${contact.id}" aria-label="Open ${escapeHTML(contact.fullName)}"><div class="avatar">${initials(contact.fullName)}</div><div class="contact-body"><h3>${escapeHTML(contact.fullName)}</h3><div class="contact-meta">${meta}</div></div><div class="contact-status">${status}</div></button>${isCallablePhone(contact.phoneNumber)?`<div class="contact-quick-actions"><a class="icon-button contact-call" href="${phoneHref(contact.phoneNumber)}" data-communication-contact-id="${contact.id}" data-communication-type="Call" aria-label="Call ${escapeHTML(contact.fullName)}">${icons.phone}</a><a class="icon-button contact-text" href="${messageHref(contact.phoneNumber)}" data-communication-contact-id="${contact.id}" data-communication-type="Text" aria-label="Text ${escapeHTML(contact.fullName)}">${icons.chat}</a></div>`:""}</article>`; }
-function renderPipelineGroup(role, contacts) { const stages=PIPELINES[role] || []; return `<section class="pipeline-role-group"><div class="pipeline-role-head"><span class="eyebrow">${role === "Customer" ? "Customer sales pipeline" : "Prospect pipeline"}</span></div><div class="pipeline-board ${role === "Customer" ? "customer-pipeline" : ""}">${stages.map(stage=>{const group=contacts.filter(c=>c.role===role&&stageFor(c)===stage);return `<div class="pipeline-column glass"><div class="column-head"><div><strong>${escapeHTML(stageLabel(stage))}</strong>${stageTitle(stage)!==stage&&stage!=="CNA"?`<small class="muted">${escapeHTML(stageTitle(stage))}</small>`:""}</div><span class="pill">${group.length}</span></div>${group.map(c=>`<button class="pipeline-person" data-contact-id="${c.id}"><strong>${escapeHTML(c.fullName)}</strong><div class="muted">${escapeHTML(c.interestLevel)} interest</div></button>`).join("")||'<span class="muted">No contacts</span>'}</div>`}).join("")}</div></section>`; }
+function renderPipelineGroup(role, contacts) { const stages=PIPELINES[role] || []; return `<section class="pipeline-role-group"><div class="pipeline-role-head"><span class="eyebrow">${role === "Customer" ? "Customer sales pipeline" : "Prospect pipeline"}</span></div><div class="pipeline-board ${role === "Customer" ? "customer-pipeline" : ""}">${stages.map(stage=>{const group=contacts.filter(c=>c.role===role&&stageFor(c)===stage);return `<div class="pipeline-column glass"><div class="column-head"><strong>${escapeHTML(stageLabel(stage))}</strong><span class="pill">${group.length}</span></div>${group.map(c=>`<button class="pipeline-person" data-contact-id="${c.id}"><strong>${escapeHTML(c.fullName)}</strong><div class="muted">${escapeHTML(c.interestLevel)} interest</div></button>`).join("")||'<span class="muted">No contacts</span>'}</div>`}).join("")}</div></section>`; }
 function renderPipeline(contacts) { const active=contacts.filter(contact=>!contact.archivedAt&&!contact.isFilteredOut&&contact.role!=="Team");const roles=ui.roleFilter==="Prospect"?["Prospect"]:ui.roleFilter==="Customer"?["Customer"]:[]; if(ui.roleFilter==="Team")return emptyInline("Team contacts do not use a sales pipeline","Team members remain available in List and search."); return `<div class="pipeline-groups">${(roles.length?roles:["Prospect","Customer"]).map(role=>renderPipelineGroup(role,active)).join("")}</div>`; }
 function renderPlaces() { const places=state.places.map(place=>({...place,count:state.contacts.filter(c=>c.placeId===place.id||(!c.placeId&&c.placeName===place.name)).length})).sort((a,b)=>Number(b.isFavorite)-Number(a.isFavorite)||b.count-a.count); return places.length?`<div class="grid places-grid">${places.map(place=>`<div class="card place-card glass"><div class="place-title-row"><h2>${escapeHTML(place.name)}</h2>${place.isFavorite?`<span class="favorite-star" role="img" aria-label="Favorite place" title="Favorite place">${icons.star}</span>`:""}</div><div class="place-count">${place.count}<span class="muted place-count-label"> contacts</span></div></div>`).join("")}</div>`:emptyInline("No saved places","Add a place while creating your next contact."); }
 
@@ -655,8 +748,8 @@ function renderAdd() {
     </form>`;
 }
 function field(label, control, cls="") { return `<label class="field ${cls}"><span>${label}</span>${control}</label>`; }
-function stageCheck(stage,title,{type="checkbox",checked=false}={}) { const name=type==="radio"?"pipelineStage":stageInputName(stage); return `<label class="check-tile"><input type="${type}" name="${name}" value="${escapeHTML(stage)}" ${checked?"checked":""}><span><strong>${escapeHTML(stageLabel(stage))}</strong><br><small class="muted">${escapeHTML(title)}</small></span></label>`; }
-function roleStageChecks(role,contact=null) { return (PIPELINES[role] || []).map(stage=>stageCheck(stage,stageTitle(stage),{type:"radio",checked:Boolean(contact?.stages?.[stage])})).join(""); }
+function stageCheck(stage,title,{type="checkbox",checked=false,showDescription=true}={}) { const name=type==="radio"?"pipelineStage":stageInputName(stage); const description=showDescription&&title?`<small class="muted">${escapeHTML(title)}</small>`:""; return `<label class="check-tile"><input type="${type}" name="${name}" value="${escapeHTML(stage)}" ${checked?"checked":""}><span><strong>${escapeHTML(stageLabel(stage))}</strong>${description}</span></label>`; }
+function roleStageChecks(role,contact=null) { return (PIPELINES[role] || []).map(stage=>stageCheck(stage,"",{type:"radio",checked:Boolean(contact?.stages?.[stage]),showDescription:false})).join(""); }
 
 function renderFollowUps() {
   const items=activeFollowUps(), overdue=items.filter(x=>new Date(x.dueDate)<new Date()), upcoming=items.filter(x=>new Date(x.dueDate)>=new Date());
@@ -670,17 +763,34 @@ function analyticsDateControls() {
   return `<label class="analytics-date-field"><span>${ui.analyticsRange === "day" ? "Day" : "Week containing"}</span><input class="date-control" id="analyticsAnchor" type="date" value="${ui.analyticsAnchor}"></label>`;
 }
 
+function sharedContactsForRange(contacts) {
+  return contacts.map(contact => ({
+    fullName: contact.fullName,
+    role: contact.role,
+    pipelineStage: currentPipelineStage(contact),
+    placeName: contact.placeName
+  }));
+}
+
+function scorecardShareModal() {
+  const data = analyticsScorecardData();
+  const range = data.range;
+  const preview = `<div class="grid stats-grid scorecard-preview">${statCard("chart", data.metrics.conversations, "Conversations")}${statCard("contactCard", data.metrics.contacts, "Contacts")}${statCard("people", data.metrics.prospects, "Prospects")}${statCard("target", data.metrics.prospectiveCustomers, "Prospective Customers")}</div>`;
+  const activeLinks = managedScorecards().filter(item => !item.revokedAt && new Date(item.expiresAt) > new Date());
+  const sharedResult = ui.scorecardShared ? `<div class="share-result"><strong>Secure link ready</strong><span class="muted">Expires ${fmtDate(ui.scorecardShared.expiresAt, { month: "short", day: "numeric", year: "numeric" })}</span><div class="form-actions"><button class="button subtle" id="copyCreatedScorecard" type="button">${icons.link}<span>Copy link</span></button><button class="button primary" id="messageCreatedScorecard" type="button">${icons.chat}<span>Message scorecard</span></button></div></div>` : "";
+  return `<div class="modal-backdrop" id="scorecardShareBackdrop"><section class="modal scorecard-share-modal" role="dialog" aria-modal="true" aria-labelledby="shareScorecardTitle"><header class="modal-head"><div><span class="eyebrow">Analytics</span><h2 id="shareScorecardTitle">Share scorecard</h2></div><button class="icon-button close-scorecard-share" type="button" aria-label="Close">${icons.close}</button></header><div class="modal-body"><p class="muted share-period">${escapeHTML(range.label)}</p>${preview}<form id="scorecardShareForm" class="scorecard-share-form"><fieldset><legend>Visibility</legend><label class="share-scope-option"><input type="radio" name="scorecardScope" value="scorecard" ${!ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard only</strong><small>Only the four metrics and selected date range are shared.</small></span></label><label class="share-scope-option"><input type="radio" name="scorecardScope" value="contacts" ${ui.scorecardIncludeContacts ? "checked" : ""}><span><strong>Scorecard plus new contacts</strong><small>Shares ${data.newContacts.length} contact${data.newContacts.length === 1 ? "" : "s"}: name, role, stage, and place only.</small></span></label></fieldset><label class="field"><span>Link expires</span><select name="scorecardExpiry"><option value="1" ${ui.scorecardExpiryDays === 1 ? "selected" : ""}>In 1 day</option><option value="7" ${ui.scorecardExpiryDays === 7 ? "selected" : ""}>In 7 days</option><option value="30" ${ui.scorecardExpiryDays === 30 ? "selected" : ""}>In 30 days</option></select></label><label class="share-confirmation"><input type="checkbox" name="scorecardConfirmed" ${ui.scorecardConfirmed ? "checked" : ""}><span>I understand this creates a read-only link to the selected scorecard${ui.scorecardIncludeContacts ? " and approved contact details" : ""}.</span></label><p class="settings-note">Phone numbers, notes, follow-ups, private judgements, interest levels, and editing controls are never shared.</p><div class="form-actions"><button class="button subtle close-scorecard-share" type="button">Cancel</button><button class="button primary" type="submit" ${ui.scorecardShareBusy ? "disabled" : ""}>${icons.share}<span>${ui.scorecardShareBusy ? "Creating link" : "Create secure link"}</span></button></div></form>${sharedResult}${activeLinks.length ? `<section class="managed-scorecards"><span class="eyebrow">Active links on this device</span>${activeLinks.map(item => `<div class="managed-scorecard"><div><strong>${escapeHTML(item.periodLabel)}</strong><small class="muted">Expires ${fmtDate(item.expiresAt, { month: "short", day: "numeric" })}</small></div><button type="button" class="button subtle revoke-scorecard" data-scorecard-token="${escapeHTML(item.token)}">Revoke</button></div>`).join("")}</section>` : ""}</div></section></div>`;
+}
+
 function renderAnalytics() {
-  const range=rangeForAnalytics(), logs=countedConversations(range), contacts=state.contacts.filter(c=>inRange(c.dateFirstMet,range));
-  const capturedContacts=uniquePhoneCaptures(state.contacts,range);
+  const scorecard = analyticsScorecardData(), range = scorecard.range, logs = scorecard.conversations, contacts = scorecard.newContacts;
   const communications=state.contacts.flatMap(contact=>contact.conversations.map(log=>({...log,contact}))).filter(log=>log.communicationType&&inRange(log.conversationDate||log.createdAt,range));
   const communicationMetrics={callsAttempted:communications.filter(log=>log.communicationType==="Call").length,callsConnected:communications.filter(log=>log.communicationType==="Call"&&log.outcome==="Connected").length,textsSent:communications.filter(log=>log.communicationType==="Text"&&log.direction==="Outgoing"&&log.outcome==="Text sent").length,textResponses:communications.filter(log=>log.communicationType==="Text"&&(log.direction==="Incoming"||log.outcome==="Response received")).length,followUps:communications.filter(log=>log.followUpCreated).length};
   const stageCounts=Object.fromEntries(ALL_STAGES.map(stage=>[stage,state.contacts.flatMap(contact=>contact.stageEvents||[]).filter(event=>event.stage===stage&&inRange(event.occurredAt,range)).length]));
   const interest=Object.fromEntries(INTERESTS.map(level=>[level,contacts.filter(c=>c.role!=="Team"&&c.interestLevel===level).length]));
   const maxInterest=Math.max(1,...Object.values(interest));
-  return `${pageHead("Analytics", "See the activity that creates momentum.")}
+  return `${pageHead("Analytics", "See the activity that creates momentum.", `<button class="icon-button" id="shareScorecard" type="button" aria-label="Share scorecard">${icons.share}</button>`)}
     <div class="card glass section-card analytics-period-card"><div class="period-controls"><div class="segmented analytics-segmented" aria-label="Analytics period">${["day","week","month","custom"].map(mode=>`<button type="button" data-range="${mode}" class="${ui.analyticsRange===mode?"active":""}" aria-pressed="${ui.analyticsRange===mode}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join("")}</div><div class="analytics-period-detail">${analyticsDateControls()}<strong class="period-label">${range.label}</strong></div></div></div>
-    <div class="grid stats-grid">${statCard("chart",logs.length,"Conversations")}${statCard("contactCard",capturedContacts.length,"Contacts")}${statCard("people",contacts.filter(c=>c.role==="Prospect").length,"Prospects")}${statCard("target",contacts.filter(c=>c.role==="Customer").length,"Prospective Customers")}</div>
+    <div class="grid stats-grid">${statCard("chart",scorecard.metrics.conversations,"Conversations")}${statCard("contactCard",scorecard.metrics.contacts,"Contacts")}${statCard("people",scorecard.metrics.prospects,"Prospects")}${statCard("target",scorecard.metrics.prospectiveCustomers,"Prospective Customers")}</div>
     <div class="grid analytics-grid section-gap"><div class="card glass"><h2>Pipeline Activity</h2><div class="metric-bars">${["MSA","DTM","PQI","QI/P","FUP","LA","CNA"].map(stage=>metricBar(stage,stageCounts[stage],Math.max(1,...Object.values(stageCounts)))).join("")}</div></div><div class="card glass"><h2>Communication Activity</h2><div class="metric-bars">${Object.entries({"Calls attempted":communicationMetrics.callsAttempted,"Calls connected":communicationMetrics.callsConnected,"Texts sent":communicationMetrics.textsSent,"Text responses":communicationMetrics.textResponses,"Follow-ups created":communicationMetrics.followUps}).map(([label,value])=>metricBar(label,value,Math.max(1,...Object.values(communicationMetrics)))).join("")}</div></div><div class="card glass"><h2>Interest Breakdown</h2><div class="metric-bars">${INTERESTS.map(level=>metricBar(level,interest[level],maxInterest)).join("")}</div></div><div class="card glass"><h2>Conversation Mix</h2><div class="metric-bars">${CONVERSATION_TYPES.map(type=>metricBar(type,logs.filter(log=>log.type===type).length,Math.max(1,logs.length))).join("")}</div></div><div class="card glass"><h2>Follow-Up Completion</h2>${followUpAnalytics(range)}</div></div>`;
 }
 function metricBar(label,value,max){return `<div><div class="metric-label"><span>${label}</span><strong>${value}</strong></div><div class="bar"><span style="width:${value/Math.max(1,max)*100}%"></span></div></div>`;}
@@ -785,11 +895,13 @@ function bindCommonEvents(){
   $('#viewAchievements')?.addEventListener('click',()=>{ui.achievementsOpen=true;render();});
   $('#settingsBackdrop')?.addEventListener('click',event=>{if(event.target.id==='settingsBackdrop'){ui.settingsOpen=false;ui.settingsAccentDraft=null;render();}});
   $('#contactBackdrop')?.addEventListener('click',event=>{if(event.target.id==='contactBackdrop'&&closeContactDetail())render();});
-  document.onkeydown=event=>{if(event.key!=='Escape'||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.activityHistoryContactId||ui.communicationContactId))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.activityHistoryContactId){ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.achievementsOpen=false;render();};
+  $('#scorecardShareBackdrop')?.addEventListener('click',event=>{if(event.target.id==='scorecardShareBackdrop'){ui.scorecardShareOpen=false;ui.scorecardShared=null;render();}});
+  document.onkeydown=event=>{if(event.key!=="Escape"||!(ui.settingsOpen||ui.achievementsOpen||ui.detailId||ui.activityHistoryContactId||ui.communicationContactId||ui.scorecardShareOpen))return;if(ui.communicationContactId){ui.communicationContactId=null;ui.communicationStartedAt=null;ui.communicationLogId=null;clearPendingCommunication();render();return;}if(ui.activityHistoryContactId){ui.activityHistoryContactId=null;ui.activityFilter="All";ui.expandedLogIds.clear();render();return;}if(ui.scorecardShareOpen){ui.scorecardShareOpen=false;ui.scorecardShared=null;render();return;}if(ui.detailId&&!closeContactDetail())return;ui.settingsOpen=false;ui.settingsAccentDraft=null;ui.achievementsOpen=false;render();};
 }
 
 function bindPageEvents(){
   $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsOpen=true;render();});
+  $('#shareScorecard')?.addEventListener('click',()=>{ui.scorecardShareOpen=true;ui.scorecardShared=null;ui.scorecardConfirmed=false;render();});
   $$('[data-contact-mode]').forEach(button=>button.addEventListener('click',()=>{const nextMode=button.dataset.contactMode;if(ui.contactMode===nextMode)return;if(nextMode==="pipeline"&&["No-Go","Archived"].includes(ui.visibilityFilter))ui.visibilityFilter="Active";ui.contactMode=nextMode;render();}));
   $('#contactSearch')?.addEventListener('input',event=>{ui.search=event.target.value;const cursor=event.target.selectionStart;clearTimeout(searchRenderTimer);searchRenderTimer=setTimeout(()=>{render();const input=$('#contactSearch');input?.focus();input?.setSelectionRange(cursor,cursor);},100);});
   $('#roleFilter')?.addEventListener('change',event=>{ui.roleFilter=event.target.value;render();});
@@ -805,6 +917,85 @@ function bindPageEvents(){
   $('#analyticsMonth')?.addEventListener('change',event=>{if(event.target.value)ui.analyticsAnchor=`${event.target.value}-01`;render();});
   $('#analyticsCustomStart')?.addEventListener('change',event=>{ui.analyticsCustomStart=event.target.value||ui.analyticsAnchor;if(ui.analyticsCustomEnd<ui.analyticsCustomStart)ui.analyticsCustomEnd=ui.analyticsCustomStart;render();});
   $('#analyticsCustomEnd')?.addEventListener('change',event=>{ui.analyticsCustomEnd=event.target.value||ui.analyticsCustomStart;if(ui.analyticsCustomEnd<ui.analyticsCustomStart)ui.analyticsCustomStart=ui.analyticsCustomEnd;render();});
+}
+
+function scorecardMessage(scorecard, url) {
+  return `Here's my Bridge scorecard for ${scorecard.periodLabel}: ${scorecardSummary(scorecard)}. ${url}`;
+}
+
+async function copyScorecardLink(url) {
+  try {
+    await navigator.clipboard?.writeText(url);
+    showToast("Secure scorecard link copied");
+  } catch {
+    prompt("Copy this secure scorecard link", url);
+  }
+}
+
+function messageScorecard(scorecard, url) {
+  const body = encodeURIComponent(scorecardMessage(scorecard, url));
+  location.href = `sms:?&body=${body}`;
+}
+
+async function createScorecardLink() {
+  const data = analyticsScorecardData();
+  const contacts = ui.scorecardIncludeContacts ? sharedContactsForRange(data.newContacts) : [];
+  const ownerName = state.settings.firstName || state.settings.name || "Bridge";
+  const snapshot = createSnapshot({ ownerName, range: data.range, metrics: data.metrics, includeContacts: ui.scorecardIncludeContacts, contacts });
+  const response = await fetch("/api/scorecards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ scorecard: snapshot, expiresInDays: ui.scorecardExpiryDays })
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const result = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
+  if (!response.ok) throw new Error(result.error || "Secure scorecards require the hosted Bridge app.");
+  return { snapshot, ...result };
+}
+
+function bindScorecardShareEvents() {
+  $$(".close-scorecard-share").forEach(button => button.addEventListener("click", () => { ui.scorecardShareOpen=false;ui.scorecardShared=null;render(); }));
+  $("#scorecardShareForm")?.addEventListener("change", event => {
+    const form = event.currentTarget;
+    ui.scorecardIncludeContacts = form.scorecardScope.value === "contacts";
+    ui.scorecardExpiryDays = Number(form.scorecardExpiry.value) || 7;
+    ui.scorecardConfirmed = Boolean(form.scorecardConfirmed.checked);
+    render();
+  });
+  $("#scorecardShareForm")?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    ui.scorecardIncludeContacts = form.get("scorecardScope") === "contacts";
+    ui.scorecardExpiryDays = Number(form.get("scorecardExpiry")) || 7;
+    ui.scorecardConfirmed = form.get("scorecardConfirmed") === "on";
+    if (!ui.scorecardConfirmed) { showToast("Confirm what will be shared before creating the link"); return; }
+    ui.scorecardShareBusy = true;
+    render();
+    try {
+      const created = await createScorecardLink();
+      const item = { token: created.token, managementToken: created.managementToken, url: created.url, expiresAt: created.expiresAt, periodLabel: created.snapshot.periodLabel, createdAt: new Date().toISOString() };
+      rememberScorecard(item);
+      ui.scorecardShared = { ...item, snapshot: created.snapshot };
+    } catch (error) {
+      showToast(error?.message || "Bridge could not create a secure scorecard link");
+    } finally {
+      ui.scorecardShareBusy = false;
+      render();
+    }
+  });
+  $("#copyCreatedScorecard")?.addEventListener("click", () => copyScorecardLink(ui.scorecardShared?.url));
+  $("#messageCreatedScorecard")?.addEventListener("click", () => { if (ui.scorecardShared) messageScorecard(ui.scorecardShared.snapshot, ui.scorecardShared.url); });
+  $$(".revoke-scorecard").forEach(button => button.addEventListener("click", async () => {
+    const item = managedScorecards().find(entry => entry.token === button.dataset.scorecardToken);
+    if (!item || !confirm("Revoke this shared scorecard link? Anyone with it will lose access.")) return;
+    try {
+      const response = await fetch(`/api/scorecards/${encodeURIComponent(item.token)}`, { method: "DELETE", headers: { Authorization: `Bearer ${item.managementToken}` } });
+      if (!response.ok) throw new Error();
+      removeManagedScorecard(item.token);
+      showToast("Scorecard link revoked");
+    } catch { showToast("Bridge could not revoke that link"); }
+    render();
+  }));
 }
 
 function updateNewRoleFields(role) {
@@ -892,7 +1083,8 @@ function bindCommunicationLogEvents(){
 }
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}), { once: true });
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=54").catch(() => {}), { once: true });
 }
 
-loadState();
+if (sharedScorecardToken) loadSharedScorecard(sharedScorecardToken);
+else loadState();
