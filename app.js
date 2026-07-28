@@ -167,6 +167,9 @@ if (["dashboard", "contacts", "add", "followups", "analytics"].includes(launchPa
 if (launchParams.get("contact")) ui.detailId = launchParams.get("contact");
 const sharedScorecardToken = String(launchParams.get("shared") || "").trim();
 const cloudStateAvailable = document.querySelector('meta[name="bridge-cloud-state"]')?.content === "enabled";
+const apiBase = String(globalThis.BridgeConfig?.apiBase || "").replace(/\/+$/, "");
+const apiURL = path => apiBase ? `${apiBase}${path.startsWith("/") ? path : `/${path}`}` : path;
+const apiFetch = (path, options) => fetch(apiURL(path), options);
 
 function normalizeState(raw) {
   const base = defaultState();
@@ -276,7 +279,7 @@ async function loadSharedScorecard(token) {
   ui.sharedScorecardLoading = true;
   render();
   try {
-    const response = await fetch(`/api/scorecards/${encodeURIComponent(token)}`, { headers: { Accept: "application/json" } });
+    const response = await apiFetch(`/api/scorecards/${encodeURIComponent(token)}`, { headers: { Accept: "application/json" } });
     const contentType = response.headers.get("content-type") || "";
     const result = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
     if (!response.ok || !result.scorecard) throw new Error(result.error || "This scorecard link has expired or is no longer available.");
@@ -384,7 +387,7 @@ function hostedReminderSchedule() {
 }
 
 async function registerHostedSubscription(subscription) {
-  const response = await fetch("/api/push/subscribe", {
+  const response = await apiFetch("/api/push/subscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ subscription, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
@@ -406,7 +409,7 @@ async function syncHostedReminderSchedule() {
     .then(registration => (registration.active || navigator.serviceWorker.controller)?.postMessage({ type: "bridge-reminder-schedule", schedule }))
     .catch(() => {});
   if (!token) token = await registerHostedSubscription(subscription);
-  const response = await fetch("/api/push/schedule", {
+  const response = await apiFetch("/api/push/schedule", {
     method: "PUT",
     headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ endpoint: subscription.endpoint, schedule })
@@ -436,7 +439,7 @@ async function enableBackgroundPush() {
   const permission = notificationPermission() === "granted" ? "granted" : await Notification.requestPermission();
   if (permission !== "granted") throw new Error("Notification permission was not enabled.");
   const registration = await navigator.serviceWorker.ready;
-  const configResponse = await fetch("/api/push/config", { headers: { Accept: "application/json" } });
+  const configResponse = await apiFetch("/api/push/config", { headers: { Accept: "application/json" } });
   const config = await configResponse.json();
   if (!configResponse.ok || !config.publicKey) throw new Error(config.error || "Bridge push service is not configured yet.");
   let subscription = await registration.pushManager.getSubscription();
@@ -453,7 +456,7 @@ async function disableBackgroundPush() {
   const subscription = await currentPushSubscription();
   if (subscription) {
     const token = pushDeviceToken();
-    await fetch("/api/push/subscribe", { method: "DELETE", headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: subscription.endpoint }) }).catch(() => {});
+    await apiFetch("/api/push/subscribe", { method: "DELETE", headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: subscription.endpoint }) }).catch(() => {});
     await subscription.unsubscribe().catch(() => false);
   }
   setPushDeviceToken("");
@@ -474,7 +477,7 @@ async function sendBridgeNotification(title, options) {
   if (notificationPermission() !== "granted") return false;
   try {
     const registration = await navigator.serviceWorker.ready;
-    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=60", badge: "./bridge-icon-192.png?v=60", ...options });
+    await registration.showNotification(title, { icon: "./bridge-icon-192.png?v=61", badge: "./bridge-icon-192.png?v=61", ...options });
     return true;
   } catch { return false; }
 }
@@ -630,7 +633,7 @@ function render() {
   document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=60" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=61" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -655,13 +658,13 @@ function render() {
 }
 
 function renderSharedScorecard() {
-  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=60" alt=""><strong>Opening shared scorecard</strong></div></main>`;
-  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=60" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=61" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=61" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
   const scorecard = ui.sharedScorecard;
   const metrics = scorecard.metrics || {};
   const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
   const owner = escapeHTML(scorecard.ownerName || "Bridge");
-  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=60" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=61" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
 }
 
 function sharedScorecardContact(contact) {
@@ -980,7 +983,7 @@ async function createScorecardLink() {
   const contacts = ui.scorecardIncludeContacts ? sharedContactsForRange(data.newContacts) : [];
   const ownerName = state.settings.firstName || state.settings.name || "Bridge";
   const snapshot = createSnapshot({ ownerName, range: data.range, metrics: data.metrics, includeContacts: ui.scorecardIncludeContacts, contacts });
-  const response = await fetch("/api/scorecards", {
+  const response = await apiFetch("/api/scorecards", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ scorecard: snapshot, expiresInDays: ui.scorecardExpiryDays })
@@ -1027,7 +1030,7 @@ function bindScorecardShareEvents() {
     const item = managedScorecards().find(entry => entry.token === button.dataset.scorecardToken);
     if (!item || !confirm("Revoke this shared scorecard link? Anyone with it will lose access.")) return;
     try {
-      const response = await fetch(`/api/scorecards/${encodeURIComponent(item.token)}`, { method: "DELETE", headers: { Authorization: `Bearer ${item.managementToken}` } });
+      const response = await apiFetch(`/api/scorecards/${encodeURIComponent(item.token)}`, { method: "DELETE", headers: { Authorization: `Bearer ${item.managementToken}` } });
       if (!response.ok) throw new Error();
       removeManagedScorecard(item.token);
       showToast("Scorecard link revoked");
@@ -1111,7 +1114,7 @@ function bindSettingsEvents(){
   $('#streakRestRules')?.addEventListener('click',event=>{const button=event.target.closest('.remove-rest-rule');if(!button)return;const index=Number(button.dataset.restRuleIndex);ui.settingsRestRulesDraft=normalizeRestRules(ui.settingsRestRulesDraft).filter((_,ruleIndex)=>ruleIndex!==index);refreshRestDayEditor();});
   $('#streakRestDays')?.addEventListener('click',event=>{const button=event.target.closest('.remove-rest-day');if(!button)return;const value=button.dataset.restDate;ui.settingsExcludedDatesDraft=normalizeExcludedDates(ui.settingsExcludedDatesDraft).filter(date=>date!==value);refreshRestDayEditor();});
   $('#requestNotifications')?.addEventListener('click',async()=>{try{pushSubscriptionState='checking';await enableBackgroundPush();queueSave('Background reminders enabled');render();startReminderChecks();}catch(error){await refreshPushSubscriptionState();showToast(error?.message||'Background reminders could not be enabled');render();}});
-  $('#testPushNotification')?.addEventListener('click',async()=>{try{const subscription=await currentPushSubscription();const token=pushDeviceToken();if(!subscription||!token)throw new Error('Enable background reminders first');const response=await fetch('/api/push/test-device',{method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({endpoint:subscription.endpoint})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Test notification failed');showToast('Test notification sent');}catch(error){showToast(error?.message||'Test notification failed');}});
+  $('#testPushNotification')?.addEventListener('click',async()=>{try{const subscription=await currentPushSubscription();const token=pushDeviceToken();if(!subscription||!token)throw new Error('Enable background reminders first');const response=await apiFetch('/api/push/test-device',{method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({endpoint:subscription.endpoint})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Test notification failed');showToast('Test notification sent');}catch(error){showToast(error?.message||'Test notification failed');}});
   $('#disablePushNotifications')?.addEventListener('click',async()=>{await disableBackgroundPush();state.settings.notificationsEnabled=false;queueSave('Background reminders disabled on this device');render();startReminderChecks();});
   $('#settingsForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);const accent=String(f.get('accent')||state.settings.accent);const firstName=String(f.get('firstName')||'').trim();const lastName=String(f.get('lastName')||'').trim();state.settings={...state.settings,name:[firstName,lastName].filter(Boolean).join(' '),firstName,lastName,businessName:String(f.get('businessName')||''),dailyGoal:Number(f.get('dailyGoal'))||5,weeklyGoal:Number(f.get('weeklyGoal'))||25,monthlyGoal:Number(f.get('monthlyGoal'))||100,defaultFollowUpDays:Number(f.get('defaultFollowUpDays'))||2,weekStart:Number(f.get('weekStart'))||0,theme:String(f.get('theme')),accent:ACCENTS[accent]?accent:state.settings.accent,compact:f.has('compact'),autoArchiveInactive:f.has('autoArchiveInactive'),notificationsEnabled:f.has('notificationsEnabled')&&notificationPermission()==='granted',followUpNotifications:f.has('followUpNotifications'),dailyReminderEnabled:f.has('dailyReminderEnabled'),dailyReminderTime:String(f.get('dailyReminderTime')||'09:00'),streakExcludedDates:normalizeExcludedDates(ui.settingsExcludedDatesDraft),streakRestRules:normalizeRestRules(ui.settingsRestRulesDraft)};const archived=archiveInactiveContacts(state.contacts,state.settings.autoArchiveInactive);ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;applyAppearance();queueSave(archived?`${archived} inactive contact${archived===1?'':'s'} archived`:'Settings saved');ui.settingsOpen=false;render();startReminderChecks();});
   $('#exportBackup')?.addEventListener('click',()=>downloadFile(`bridge-backup-${todayInput()}.json`,JSON.stringify(state,null,2),'application/json'));
@@ -1164,7 +1167,7 @@ function bindCommunicationLogEvents(){
 }
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=60").catch(() => {}), { once: true });
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js?v=61").catch(() => {}), { once: true });
 }
 
 if (sharedScorecardToken) loadSharedScorecard(sharedScorecardToken);
