@@ -8,11 +8,19 @@
     "BACKEND_ONLY": "true",
     "ALLOWED_ORIGINS": "https://ileggett23.github.io",
     "PUBLIC_APP_URL": "https://ileggett23.github.io/bridge-crm/",
-    "AUTH_ENABLED": "false",
+    "AUTH_ENABLED": "true",
     "AUTH_REQUIRE_TURNSTILE": "true",
+    "AUTH_EMAIL_FROM": "no-reply@bridgecrm.dev",
+    "AUTH_EMAIL_NAME": "Bridge",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAEBFY9H4PCiJInux",
     "ENVIRONMENT": "production"
   },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["no-reply@bridgecrm.dev"]
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
