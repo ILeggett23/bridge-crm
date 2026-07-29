@@ -21,6 +21,12 @@
       "migrations_dir": "migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "USER_BACKUPS",
+      "bucket_name": "bridge-crm-user-backups"
+    }
+  ],
   "triggers": {
     "crons": ["* * * * *"]
   },
