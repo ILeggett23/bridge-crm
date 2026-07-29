@@ -346,7 +346,7 @@ function accountSyncLabel() {
 function renderSessionLoading() {
   document.body.classList.remove("modal-open");
   const app = $("#app");
-  app.innerHTML = `<main class="session-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><strong>Opening Bridge</strong><span>Checking your private workspace…</span></main>`;
+  app.innerHTML = `<main class="session-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.67" alt=""><strong>Opening Bridge</strong><span>Checking your private workspace…</span></main>`;
 }
 
 function cleanAccountURLParameter(name) {
@@ -834,7 +834,7 @@ function accountMigrationModal() {
   const busy = ui.accountBusy ? "disabled" : "";
   return `<div class="modal-backdrop account-migration-backdrop"><section class="modal account-migration-modal" role="dialog" aria-modal="true" aria-labelledby="accountMigrationTitle" aria-describedby="accountMigrationDescription">
     <header class="account-migration-header">
-      <img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt="">
+      <img class="brand-mark" src="./bridge-icon-192.png?v=1.1.67" alt="">
       <span class="eyebrow">Private workspace</span>
       <h2 id="accountMigrationTitle">Keep your existing Bridge data?</h2>
       <p id="accountMigrationDescription">Bridge found information saved only in this browser. Choose whether to copy it into this account or begin with an empty account.</p>
@@ -1032,7 +1032,7 @@ function render() {
   document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.releaseNotesOpen || ui.accountMigrationOpen || ui.accountAction));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.67" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -1061,13 +1061,13 @@ function render() {
 }
 
 function renderSharedScorecard() {
-  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><strong>Opening shared scorecard</strong></div></main>`;
-  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.67" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.67" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
   const scorecard = ui.sharedScorecard;
   const metrics = scorecard.metrics || {};
   const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
   const owner = escapeHTML(scorecard.ownerName || "Bridge");
-  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.67" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
 }
 
 function sharedScorecardContact(contact) {
@@ -1100,7 +1100,7 @@ function maybePresentReleaseNotes() {
 
 function releaseNotesModal() {
   const items = APP_RELEASE.items.map(item => `<li class="release-note-item"><div class="release-note-icon">${icons[item.icon] || icons.sparkles}</div><div><h3>${escapeHTML(item.title)}</h3><p>${escapeHTML(item.description)}</p></div></li>`).join("");
-  return `<div class="modal-backdrop release-notes-backdrop" id="releaseNotesBackdrop"><section class="modal release-notes-modal" role="dialog" aria-modal="true" aria-labelledby="releaseNotesTitle" aria-describedby="releaseNotesVersion"><div class="release-notes-scroll"><header class="release-notes-header"><img class="release-notes-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><h2 id="releaseNotesTitle">${escapeHTML(APP_RELEASE.title)}</h2><p id="releaseNotesVersion">Version ${escapeHTML(APP_RELEASE.version)}</p></header><ul class="release-notes-list">${items}</ul></div><footer class="release-notes-actions"><button class="button primary" id="continueReleaseNotes" type="button">${icons.circleCheck}<span>Continue</span></button></footer></section></div>`;
+  return `<div class="modal-backdrop release-notes-backdrop" id="releaseNotesBackdrop"><section class="modal release-notes-modal" role="dialog" aria-modal="true" aria-labelledby="releaseNotesTitle" aria-describedby="releaseNotesVersion"><div class="release-notes-scroll"><header class="release-notes-header"><img class="release-notes-mark" src="./bridge-icon-192.png?v=1.1.67" alt=""><h2 id="releaseNotesTitle">${escapeHTML(APP_RELEASE.title)}</h2><p id="releaseNotesVersion">Version ${escapeHTML(APP_RELEASE.version)}</p></header><ul class="release-notes-list">${items}</ul></div><footer class="release-notes-actions"><button class="button primary" id="continueReleaseNotes" type="button">${icons.circleCheck}<span>Continue</span></button></footer></section></div>`;
 }
 
 function releaseFocusableElements() {
