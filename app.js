@@ -166,7 +166,7 @@ const defaultState = () => ({
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardConfirmed: false, scorecardShareBusy: false, releaseNotesOpen: false, releaseNotesPending: false, releaseNotesReturnToSettings: false, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, accountMigrationOpen: false, accountBusy: false, accountBackups: [], accountSessions: [], accountPanelError: "", accountPanelLoaded: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardConfirmed: false, scorecardShareBusy: false, releaseNotesOpen: false, releaseNotesPending: false, releaseNotesReturnToSettings: false, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, accountMigrationOpen: false, accountAction: null, accountBusy: false, accountBackups: [], accountSessions: [], accountPanelError: "", accountPanelLoaded: false, saveTimer: null };
 let lastRenderedPage = null;
 let lastRenderedContactMode = null;
 let searchRenderTimer = null;
@@ -891,6 +891,134 @@ function bindAccountMigrationEvents() {
   });
 }
 
+function accountActionModal() {
+  const action = ui.accountAction;
+  if (!action) return "";
+  const busy = ui.accountBusy ? "disabled" : "";
+  const close = `<button class="icon-button close-account-action" type="button" aria-label="Close" ${busy}>${icons.close}</button>`;
+
+  if (action.type === "restore-backup") {
+    const contacts = Number(action.counts?.contacts || 0);
+    const places = Number(action.counts?.places || 0);
+    return `<div class="modal-backdrop account-action-backdrop" id="accountActionBackdrop"><section class="modal account-action-modal" role="dialog" aria-modal="true" aria-labelledby="accountActionTitle" aria-describedby="accountActionDescription">
+      <header class="modal-head"><div><span class="eyebrow">Cloud backup</span><h2 id="accountActionTitle">Restore this backup?</h2></div>${close}</header>
+      <div class="modal-body"><p id="accountActionDescription" class="account-action-copy">Bridge will create a safety backup first, then replace this account's current cloud records with the selected backup.</p>
+        <div class="migration-summary account-action-summary" aria-label="Backup contents"><div><strong>${contacts}</strong><span>Contact${contacts === 1 ? "" : "s"}</span></div><div><strong>${places}</strong><span>Place${places === 1 ? "" : "s"}</span></div></div>
+        <form id="accountActionForm" class="account-action-form" data-account-action="restore-backup">
+          ${field("Bridge password", `<input name="password" type="password" autocomplete="current-password" required ${busy}>`, "full")}
+          ${field("Type RESTORE to confirm", `<input name="confirmation" autocomplete="off" autocapitalize="characters" spellcheck="false" required ${busy}>`, "full")}
+          <div class="form-actions"><button class="button close-account-action" type="button" ${busy}>Cancel</button><button class="button destructive" type="submit" ${busy}>${ui.accountBusy ? "Restoring…" : "Restore backup"}</button></div>
+        </form>
+      </div>
+    </section></div>`;
+  }
+
+  if (action.type === "delete-account") {
+    return `<div class="modal-backdrop account-action-backdrop" id="accountActionBackdrop"><section class="modal account-action-modal" role="dialog" aria-modal="true" aria-labelledby="accountActionTitle" aria-describedby="accountActionDescription">
+      <header class="modal-head"><div><span class="eyebrow">Account security</span><h2 id="accountActionTitle">Delete Bridge account?</h2></div>${close}</header>
+      <div class="modal-body"><p id="accountActionDescription" class="account-action-copy">This permanently deletes this account's private cloud CRM records and signs out every device. Browser-only data is not silently erased.</p>
+        <form id="accountActionForm" class="account-action-form" data-account-action="delete-account">
+          ${field("Bridge password", `<input name="password" type="password" autocomplete="current-password" required ${busy}>`, "full")}
+          ${field("Type DELETE to confirm", `<input name="confirmation" autocomplete="off" autocapitalize="characters" spellcheck="false" required ${busy}>`, "full")}
+          <div class="form-actions"><button class="button close-account-action" type="button" ${busy}>Cancel</button><button class="button destructive" type="submit" ${busy}>${ui.accountBusy ? "Deleting…" : "Delete account"}</button></div>
+        </form>
+      </div>
+    </section></div>`;
+  }
+
+  return `<div class="modal-backdrop account-action-backdrop" id="accountActionBackdrop"><section class="modal account-action-modal" role="dialog" aria-modal="true" aria-labelledby="accountActionTitle" aria-describedby="accountActionDescription">
+    <header class="modal-head"><div><span class="eyebrow">Account security</span><h2 id="accountActionTitle">Change password</h2></div>${close}</header>
+    <div class="modal-body"><p id="accountActionDescription" class="account-action-copy">Use at least 12 characters. Other signed-in devices will be signed out after this change.</p>
+      <form id="accountActionForm" class="account-action-form" data-account-action="change-password">
+        ${field("Current password", `<input name="currentPassword" type="password" autocomplete="current-password" required ${busy}>`, "full")}
+        ${field("New password", `<input name="newPassword" type="password" autocomplete="new-password" minlength="12" required ${busy}>`, "full")}
+        ${field("Confirm new password", `<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required ${busy}>`, "full")}
+        <div class="form-actions"><button class="button close-account-action" type="button" ${busy}>Cancel</button><button class="button primary" type="submit" ${busy}>${ui.accountBusy ? "Changing…" : "Change password"}</button></div>
+      </form>
+    </div>
+  </section></div>`;
+}
+
+function closeAccountAction() {
+  if (ui.accountBusy) return;
+  ui.accountAction = null;
+  render();
+}
+
+function bindAccountActionEvents() {
+  $$(".close-account-action").forEach(button => button.addEventListener("click", closeAccountAction));
+  $("#accountActionBackdrop")?.addEventListener("click", event => {
+    if (event.target === event.currentTarget) closeAccountAction();
+  });
+  $("#accountActionForm")?.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (ui.accountBusy || !ui.accountAction) return;
+    const action = ui.accountAction;
+    const form = new FormData(event.currentTarget);
+
+    if (action.type === "change-password") {
+      const currentPassword = String(form.get("currentPassword") || "");
+      const newPassword = String(form.get("newPassword") || "");
+      const confirmPassword = String(form.get("confirmPassword") || "");
+      if (newPassword.length < 12) { showToast("Use a password of at least 12 characters"); return; }
+      if (newPassword !== confirmPassword) { showToast("The new passwords do not match"); return; }
+      ui.accountBusy = true;
+      render();
+      try {
+        await accountClient.changePassword(currentPassword, newPassword);
+        ui.accountBusy = false;
+        ui.accountAction = null;
+        ui.accountPanelLoaded = false;
+        render();
+        refreshAccountPanelData().catch(() => {});
+        showToast("Password changed. Other devices were signed out.");
+      } catch (error) {
+        ui.accountBusy = false;
+        render();
+        showToast(error?.message || "Bridge could not change the password");
+      }
+      return;
+    }
+
+    const password = String(form.get("password") || "");
+    const confirmation = String(form.get("confirmation") || "").trim().toUpperCase();
+    if (action.type === "restore-backup") {
+      if (confirmation !== "RESTORE") { showToast("Type RESTORE to continue"); return; }
+      ui.accountBusy = true;
+      render();
+      try {
+        const restored = await accountClient.restoreBackup(action.backupId, password, confirmation);
+        if (restored?.state) state = normalizeState(restored.state);
+        ui.accountBusy = false;
+        ui.accountAction = null;
+        ui.settingsOpen = false;
+        applyAppearance();
+        render();
+        showToast("Cloud backup restored");
+      } catch (error) {
+        ui.accountBusy = false;
+        render();
+        showToast(error?.message || "Bridge could not restore that backup");
+      }
+      return;
+    }
+
+    if (confirmation !== "DELETE") { showToast("Type DELETE to continue"); return; }
+    ui.accountBusy = true;
+    render();
+    try {
+      await accountClient.deleteAccount(password, confirmation);
+      ui.accountAction = null;
+      showSignedOutAccount("Your Bridge account was deleted.");
+    } catch (error) {
+      ui.accountBusy = false;
+      render();
+      showToast(error?.message || "Bridge could not delete this account");
+    }
+  });
+  requestAnimationFrame(() => $("#accountActionForm input")?.focus());
+}
+
 function render() {
   const app = $("#app");
   if (ui.sharedScorecard || ui.sharedScorecardLoading || ui.sharedScorecardError) {
@@ -901,7 +1029,7 @@ function render() {
   }
   const shouldAnimatePage = lastRenderedPage !== ui.page;
   const shouldAnimateContactMode = ui.page === "contacts" && lastRenderedPage === "contacts" && lastRenderedContactMode !== ui.contactMode;
-  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.releaseNotesOpen || ui.accountMigrationOpen));
+  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.releaseNotesOpen || ui.accountMigrationOpen || ui.accountAction));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
       <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt="" /><span>Bridge</span></div>
@@ -915,7 +1043,7 @@ function render() {
       <div class="nav-spacer"></div><div class="sync-status">${escapeHTML(accountSyncLabel())}</div>
     </aside>
     <main class="main"><section class="page ${shouldAnimatePage ? "page-enter" : shouldAnimateContactMode ? "mode-enter" : ""}">${renderPage()}</section></main>
-  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}${ui.scorecardShareOpen ? scorecardShareModal() : ""}${ui.releaseNotesOpen ? releaseNotesModal() : ""}${ui.accountMigrationOpen ? accountMigrationModal() : ""}`;
+  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}${ui.scorecardShareOpen ? scorecardShareModal() : ""}${ui.releaseNotesOpen ? releaseNotesModal() : ""}${ui.accountMigrationOpen ? accountMigrationModal() : ""}${ui.accountAction ? accountActionModal() : ""}`;
   lastRenderedPage = ui.page;
   if (ui.page === "contacts") lastRenderedContactMode = ui.contactMode;
   bindCommonEvents();
@@ -928,6 +1056,7 @@ function render() {
   if (ui.scorecardShareOpen) bindScorecardShareEvents();
   if (ui.releaseNotesOpen) bindReleaseNotesEvents();
   if (ui.accountMigrationOpen) bindAccountMigrationEvents();
+  if (ui.accountAction) bindAccountActionEvents();
   else if (ui.releaseNotesPending && !blockingModalOpen()) setTimeout(maybePresentReleaseNotes, 0);
 }
 
@@ -951,7 +1080,7 @@ function bindSharedScorecardEvents() {
 }
 
 function blockingModalOpen() {
-  return Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.accountMigrationOpen);
+  return Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.accountMigrationOpen || ui.accountAction);
 }
 
 function queueAutomaticReleaseNotes() {
@@ -1679,6 +1808,7 @@ function showSignedOutAccount(message) {
   anonymousSnapshot = null;
   ui.settingsOpen = false;
   ui.accountMigrationOpen = false;
+  ui.accountAction = null;
   ui.accountBusy = false;
   accountContext = {
     ...accountContext,
@@ -1717,17 +1847,8 @@ function bindSettingsEvents(){
   });
   $('#changeAccountPassword')?.addEventListener('click',async()=>{
     if(ui.accountBusy)return;
-    const currentPassword=prompt('Enter your current Bridge password:');
-    if(currentPassword===null)return;
-    const newPassword=prompt('Enter a new password of at least 12 characters:');
-    if(newPassword===null)return;
-    if(newPassword.length<12){showToast('Use a password of at least 12 characters');return;}
-    ui.accountBusy=true;render();
-    try{
-      await accountClient.changePassword(currentPassword,newPassword);
-      ui.accountBusy=false;ui.accountPanelLoaded=false;render();refreshAccountPanelData().catch(()=>{});
-      showToast('Password changed. Other devices were signed out.');
-    }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Bridge could not change the password');}
+    ui.accountAction={type:'change-password'};
+    render();
   });
   $$('.revoke-account-session').forEach(button=>button.addEventListener('click',async()=>{
     if(ui.accountBusy||!confirm('Sign this device out of Bridge?'))return;
@@ -1761,30 +1882,16 @@ function bindSettingsEvents(){
     ui.accountBusy=true;render();
     try{
       const preview=await accountClient.previewBackup(button.dataset.backupId);
-      ui.accountBusy=false;render();
       const counts=preview?.counts||{};
-      if(!confirm(`Restore this backup with ${Number(counts.contacts||0)} contacts and ${Number(counts.places||0)} places? Bridge will create a safety backup first and replace this account's current cloud records.`))return;
-      const password=prompt('Enter your Bridge password to continue:');
-      if(password===null)return;
-      const confirmation=prompt('Type RESTORE to confirm:');
-      if(confirmation!=='RESTORE'){showToast('Restore canceled');return;}
-      ui.accountBusy=true;render();
-      const restored=await accountClient.restoreBackup(button.dataset.backupId,password,confirmation);
-      if(restored?.state)state=normalizeState(restored.state);
-      ui.accountBusy=false;ui.settingsOpen=false;applyAppearance();render();showToast('Cloud backup restored');
+      ui.accountBusy=false;
+      ui.accountAction={type:'restore-backup',backupId:button.dataset.backupId,counts};
+      render();
     }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Bridge could not restore that backup');}
   }));
   $('#deleteBridgeAccount')?.addEventListener('click',async()=>{
-    if(ui.accountBusy||!confirm('Delete this Bridge account and its private cloud CRM data? This cannot be undone. Existing browser-only data is not silently erased.'))return;
-    const password=prompt('Enter your Bridge password:');
-    if(password===null)return;
-    const confirmation=prompt('Type DELETE to permanently delete this account:');
-    if(confirmation!=='DELETE'){showToast('Account deletion canceled');return;}
-    ui.accountBusy=true;render();
-    try{
-      await accountClient.deleteAccount(password,confirmation);
-      showSignedOutAccount('Your Bridge account was deleted.');
-    }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Bridge could not delete this account');}
+    if(ui.accountBusy)return;
+    ui.accountAction={type:'delete-account'};
+    render();
   });
   $$('.accent-dot').forEach(button=>button.addEventListener('click',()=>{const accent=button.dataset.accent;if(!ACCENTS[accent])return;ui.settingsAccentDraft=accent;const input=$('#settingsForm input[name="accent"]');if(input)input.value=accent;$$('.accent-dot').forEach(dot=>{const selected=dot===button;dot.classList.toggle('active',selected);dot.setAttribute('aria-pressed',String(selected));});}));
   $('#streakRestFrequency')?.addEventListener('change',event=>{ui.settingsRestFrequencyDraft=event.target.value;$$('[data-rest-panel]').forEach(panel=>{panel.hidden=panel.dataset.restPanel!==ui.settingsRestFrequencyDraft;});});
