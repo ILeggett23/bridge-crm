@@ -1,14 +1,17 @@
-const CACHE = "bridge-app-v1.1.65";
+const CACHE = "bridge-app-v1.1.66";
 const ROOT = new URL("./", self.location.href).href;
 const APP_ROOT = new URL(ROOT);
 const FOLLOW_UP_FALLBACK = new URL("?page=followups&notification=1", APP_ROOT).href;
-importScripts(new URL("config.js?v=1.1.65", ROOT).href);
+importScripts(new URL("config.js?v=1.1.66", ROOT).href);
 const API_BASE = String(self.BridgeConfig?.apiBase || "").replace(/\/+$/, "");
 const apiURL = path => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
-const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("config.js", ROOT).href, new URL("contact-logic.js", ROOT).href, new URL("engagement-logic.js", ROOT).href, new URL("communication-logic.js", ROOT).href, new URL("analytics-logic.js", ROOT).href, new URL("scorecard-logic.js", ROOT).href, new URL("release-logic.js", ROOT).href, new URL("app.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("bridge-icon-192.png", ROOT).href, new URL("bridge-icon-512.png", ROOT).href, new URL("apple-touch-icon.png", ROOT).href];
+const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("config.js", ROOT).href, new URL("contact-logic.js", ROOT).href, new URL("engagement-logic.js", ROOT).href, new URL("communication-logic.js", ROOT).href, new URL("analytics-logic.js", ROOT).href, new URL("scorecard-logic.js", ROOT).href, new URL("release-logic.js", ROOT).href, new URL("account-client.js", ROOT).href, new URL("app.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("bridge-icon-192.png", ROOT).href, new URL("bridge-icon-512.png", ROOT).href, new URL("apple-touch-icon.png", ROOT).href];
+const SHELL_PATHS = new Set(SHELL.map(value => new URL(value).pathname));
 
 const PUSH_STORE = "bridge-push-settings";
 const PUSH_KEY = "reminder-schedule";
+const ACCOUNT_STORE = "bridge-account";
+const ACCOUNT_SESSION_KEY = "session";
 
 function notificationTarget(value) {
   try {
@@ -58,22 +61,65 @@ async function readReminderSchedule() {
   });
 }
 
+async function readAccountSessionToken() {
+  try {
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open(ACCOUNT_STORE, 1);
+      request.onupgradeneeded = () => {
+        for (const store of ["secure", "states", "sync", "mutations"]) {
+          if (!request.result.objectStoreNames.contains(store)) request.result.createObjectStore(store, { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error("Account storage is blocked"));
+    });
+    if (!database.objectStoreNames.contains("secure")) return "";
+    const record = await new Promise((resolve, reject) => {
+      const request = database.transaction("secure", "readonly").objectStore("secure").get(ACCOUNT_SESSION_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+    const value = record?.value;
+    if (!value?.token || !value?.user?.id) return "";
+    if (value.expiresAt && new Date(value.expiresAt).getTime() <= Date.now()) return "";
+    return String(value.token);
+  } catch {
+    return "";
+  }
+}
+
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("bridge-app-") && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener("fetch", event => {
   const requestURL = new URL(event.request.url);
-  if (event.request.method !== "GET" || requestURL.pathname.startsWith("/api/")) return;
-  event.respondWith(fetch(event.request).then(response => {
-    const copy = response.clone();
-    caches.open(CACHE).then(cache => cache.put(event.request, copy));
-    return response;
-  }).catch(() => caches.match(event.request).then(response => response || caches.match(ROOT))));
+  if (event.request.method !== "GET") return;
+
+  // Account, backup, scorecard, and push responses belong to the API origin and
+  // may contain private data. Let the browser fetch them directly and never put
+  // them in Cache Storage.
+  if (requestURL.origin !== self.location.origin || requestURL.pathname.includes("/api/")) return;
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(fetch(event.request, { cache: "no-store" }).catch(() => caches.match(ROOT)));
+    return;
+  }
+
+  if (!SHELL_PATHS.has(requestURL.pathname)) return;
+  event.respondWith(caches.match(event.request, { ignoreSearch: true }).then(cached => {
+    const network = fetch(event.request).then(response => {
+      if (!response.ok || response.type !== "basic") return response;
+      const copy = response.clone();
+      return caches.open(CACHE).then(cache => cache.put(event.request, copy)).then(() => response);
+    });
+    return cached || network;
+  }));
 });
 
 self.addEventListener("push", event => {
@@ -83,8 +129,8 @@ self.addEventListener("push", event => {
   const title = payload.title || "Bridge follow-up";
   const options = {
     body: payload.body || "A scheduled follow-up is ready.",
-    icon: new URL("bridge-icon-192.png?v=1.1.65", ROOT).href,
-    badge: new URL("bridge-icon-192.png?v=1.1.65", ROOT).href,
+    icon: new URL("bridge-icon-192.png?v=1.1.66", ROOT).href,
+    badge: new URL("bridge-icon-192.png?v=1.1.66", ROOT).href,
     tag: payload.tag || "bridge-followup",
     renotify: false,
     data: { url: notificationTarget(payload.url) }
@@ -96,8 +142,13 @@ self.addEventListener("push", event => {
 });
 
 self.addEventListener("message", event => {
-  if (event.data?.type !== "bridge-reminder-schedule" || !event.data.schedule) return;
-  event.waitUntil(saveReminderSchedule(event.data.schedule).catch(() => {}));
+  if (event.data?.type === "bridge-reminder-schedule" && event.data.schedule) {
+    event.waitUntil(saveReminderSchedule(event.data.schedule).catch(() => {}));
+    return;
+  }
+  if (event.data?.type === "bridge-account-logout") {
+    event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("bridge-private-")).map(key => caches.delete(key)))));
+  }
 });
 
 self.addEventListener("pushsubscriptionchange", event => {
@@ -108,9 +159,12 @@ self.addEventListener("pushsubscriptionchange", event => {
       const padding = "=".repeat((4 - config.publicKey.length % 4) % 4);
       const key = Uint8Array.from(atob((config.publicKey + padding).replace(/-/g, "+").replace(/_/g, "/")), character => character.charCodeAt(0));
       const subscription = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      const accountToken = await readAccountSessionToken();
+      const headers = { "Content-Type": "application/json" };
+      if (accountToken) headers.Authorization = `Bearer ${accountToken}`;
       const response = await fetch(apiURL("/api/push/subscribe"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ subscription, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
       });
       const result = await response.json().catch(() => ({}));

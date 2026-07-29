@@ -7,7 +7,11 @@
   "vars": {
     "BACKEND_ONLY": "true",
     "ALLOWED_ORIGINS": "https://ileggett23.github.io",
-    "PUBLIC_APP_URL": "https://ileggett23.github.io/bridge-crm/"
+    "PUBLIC_APP_URL": "https://ileggett23.github.io/bridge-crm/",
+    "AUTH_ENABLED": "false",
+    "AUTH_REQUIRE_TURNSTILE": "true",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAEBFY9H4PCiJInux",
+    "ENVIRONMENT": "production"
   },
   "d1_databases": [
     {

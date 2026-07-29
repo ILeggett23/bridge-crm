@@ -166,7 +166,7 @@ const defaultState = () => ({
 });
 
 let state = defaultState();
-let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardConfirmed: false, scorecardShareBusy: false, releaseNotesOpen: false, releaseNotesPending: false, releaseNotesReturnToSettings: false, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, saveTimer: null };
+let ui = { page: "dashboard", contactMode: "list", search: "", roleFilter: "All Roles", visibilityFilter: "Active", conversationFrom: "", conversationTo: "", sort: "recentContact", analyticsRange: "week", analyticsAnchor: todayInput(), analyticsCustomStart: todayInput(), analyticsCustomEnd: todayInput(), detailId: null, contactEditing: false, contactEditDirty: false, communicationContactId: null, communicationType: "Call", communicationStartedAt: null, communicationLogId: null, activityHistoryContactId: null, activityFilter: "All", expandedLogIds: new Set(), settingsOpen: false, settingsAccentDraft: null, settingsExcludedDatesDraft: null, settingsRestRulesDraft: null, settingsRestFrequencyDraft: "once", achievementsOpen: false, scorecardShareOpen: false, scorecardIncludeContacts: false, scorecardConfirmed: false, scorecardShareBusy: false, releaseNotesOpen: false, releaseNotesPending: false, releaseNotesReturnToSettings: false, sharedScorecard: null, sharedScorecardLoading: false, sharedScorecardError: "", sharedScorecardContactsOpen: false, accountMigrationOpen: false, accountBusy: false, accountBackups: [], accountSessions: [], accountPanelError: "", accountPanelLoaded: false, saveTimer: null };
 let lastRenderedPage = null;
 let lastRenderedContactMode = null;
 let searchRenderTimer = null;
@@ -181,6 +181,16 @@ const cloudStateAvailable = document.querySelector('meta[name="bridge-cloud-stat
 const apiBase = String(globalThis.BridgeConfig?.apiBase || "").replace(/\/+$/, "");
 const apiURL = path => apiBase ? `${apiBase}${path.startsWith("/") ? path : `/${path}`}` : path;
 const apiFetch = (path, options) => fetch(apiURL(path), options);
+const accountClient = globalThis.BridgeAccount || null;
+let accountContext = {
+  mode: "loading",
+  authenticated: false,
+  user: null,
+  config: null,
+  status: { state: "loading", message: "Opening Bridge…", pending: 0, conflicts: 0 }
+};
+let anonymousSnapshot = null;
+let accountUnsubscribe = null;
 
 function clearNotificationRoute(url) {
   try {
@@ -291,23 +301,148 @@ function syncAchievements(announce = true) {
   return { ...evaluateAchievements(state, state.meta.achievements), newlyUnlocked };
 }
 
+function hasMeaningfulBridgeData(value) {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value.contacts) && value.contacts.length) return true;
+  if (Array.isArray(value.places) && value.places.length) return true;
+  if (Object.keys(value.meta?.achievements || {}).length) return true;
+  const settings = value.settings || {};
+  return Boolean(
+    String(settings.firstName || settings.lastName || settings.name || settings.businessName || "").trim() ||
+    Number(settings.dailyGoal || 5) !== 5 ||
+    Number(settings.weeklyGoal || 25) !== 25 ||
+    Number(settings.monthlyGoal || 100) !== 100 ||
+    (Array.isArray(settings.streakExcludedDates) && settings.streakExcludedDates.length) ||
+    (Array.isArray(settings.streakRestRules) && settings.streakRestRules.length)
+  );
+}
+
+async function readAnonymousState() {
+  const cached = localCache.get() || await durableCache.get();
+  if (!cached) return defaultState();
+  try { return normalizeState(JSON.parse(cached)); }
+  catch { return defaultState(); }
+}
+
+function finishStateHydration() {
+  syncAchievements(false);
+  applyAppearance();
+  stateHydrated = true;
+  consumeNotificationNavigation(pendingNotificationNavigationURL || location.href, { renderNow: false });
+  pendingNotificationNavigationURL = "";
+  render();
+  queueAutomaticReleaseNotes();
+  refreshPushSubscriptionState().catch(() => {});
+  startReminderChecks();
+}
+
+function accountSyncLabel() {
+  if (accountContext.mode !== "account" || !accountContext.authenticated) {
+    return cloudStateAvailable ? "Cloud synced" : "Saved on this device";
+  }
+  return accountContext.status?.message || "Up to date";
+}
+
+function renderSessionLoading() {
+  document.body.classList.remove("modal-open");
+  const app = $("#app");
+  app.innerHTML = `<main class="session-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><strong>Opening Bridge</strong><span>Checking your private workspace…</span></main>`;
+}
+
+function cleanAccountURLParameter(name) {
+  const next = new URL(location.href);
+  next.searchParams.delete(name);
+  history.replaceState(history.state, "", `${next.pathname}${next.search}${next.hash}`);
+}
+
+function handleAccountStatus(status) {
+  accountContext.status = { ...accountContext.status, ...(status || {}) };
+  if (status?.authRequired) {
+    accountContext.authenticated = false;
+    stateHydrated = false;
+    accountClient?.renderAuthScreen({ message: "Sign in again to sync the changes saved on this device." });
+    return;
+  }
+  if (status?.stateData && accountContext.authenticated) {
+    state = normalizeState(status.stateData);
+    syncAchievements(false);
+    applyAppearance();
+    if (stateHydrated) render();
+    return;
+  }
+  const syncNode = $(".sync-status");
+  if (syncNode) syncNode.textContent = accountSyncLabel();
+}
+
+async function loadAccountState() {
+  anonymousSnapshot = await readAnonymousState();
+  const cachedAccountState = await accountClient.loadState();
+  state = normalizeState(cachedAccountState || defaultState());
+  finishStateHydration();
+
+  const migration = await accountClient.migrationStatus();
+  if (!migration.completed && hasMeaningfulBridgeData(anonymousSnapshot)) {
+    ui.accountMigrationOpen = true;
+    render();
+  }
+}
+
+async function startBridge() {
+  if (sharedScorecardToken) {
+    await loadSharedScorecard(sharedScorecardToken);
+    return;
+  }
+  if (!accountClient) {
+    await loadState();
+    return;
+  }
+
+  renderSessionLoading();
+  accountUnsubscribe?.();
+  accountUnsubscribe = accountClient.subscribe(handleAccountStatus);
+  const boot = await accountClient.bootstrap(apiBase);
+  accountContext = {
+    ...accountContext,
+    ...boot,
+    config: boot.config || accountClient.config(),
+    status: accountClient.status()
+  };
+
+  if (boot.mode !== "account") {
+    await loadState();
+    return;
+  }
+
+  const verificationToken = String(launchParams.get("verifyEmail") || "");
+  if (verificationToken) {
+    try {
+      await accountClient.verifyEmail(verificationToken);
+      cleanAccountURLParameter("verifyEmail");
+      accountClient.renderAuthScreen({ message: "Email verified. Sign in to open Bridge." });
+    } catch (error) {
+      cleanAccountURLParameter("verifyEmail");
+      accountClient.renderAuthScreen({ error: error.message });
+    }
+    return;
+  }
+
+  if (!boot.authenticated) {
+    accountClient.renderAuthScreen();
+    return;
+  }
+
+  accountContext.authenticated = true;
+  accountContext.user = boot.user || accountClient.session()?.user || null;
+  await loadAccountState();
+}
+
 async function loadState() {
   if (!cloudStateAvailable) {
-    const cached = localCache.get() || await durableCache.get();
-    try { state = normalizeState(cached ? JSON.parse(cached) : null); }
-    catch { state = defaultState(); }
+    state = await readAnonymousState();
     const snapshot = JSON.stringify(state);
     localCache.set(snapshot);
     durableCache.set(snapshot);
-    syncAchievements(false);
-    applyAppearance();
-    stateHydrated = true;
-    consumeNotificationNavigation(pendingNotificationNavigationURL || location.href, { renderNow: false });
-    pendingNotificationNavigationURL = "";
-    render();
-    queueAutomaticReleaseNotes();
-    await refreshPushSubscriptionState();
-    startReminderChecks();
+    finishStateHydration();
     return;
   }
   try {
@@ -323,15 +458,7 @@ async function loadState() {
     catch { state = defaultState(); }
     $(".sync-status")?.replaceChildren(document.createTextNode("Local mode"));
   }
-  syncAchievements(false);
-  applyAppearance();
-  stateHydrated = true;
-  consumeNotificationNavigation(pendingNotificationNavigationURL || location.href, { renderNow: false });
-  pendingNotificationNavigationURL = "";
-  render();
-  queueAutomaticReleaseNotes();
-  await refreshPushSubscriptionState();
-  startReminderChecks();
+  finishStateHydration();
 }
 
 async function loadSharedScorecard(token) {
@@ -360,9 +487,24 @@ function queueSave(message = "Saved") {
   }
   state.meta.updatedAt = nowISO();
   const snapshot = JSON.stringify(state);
+  clearTimeout(ui.saveTimer);
+
+  if (accountContext.mode === "account" && accountContext.authenticated && accountClient) {
+    const accountSnapshot = JSON.parse(snapshot);
+    accountClient.queueState(accountSnapshot).catch(() => {
+      showToast("Saved offline; Bridge will retry after you sign in or reconnect");
+    });
+    ui.saveTimer = setTimeout(async () => {
+      if (pushSubscriptionState === "active") {
+        await syncHostedReminderSchedule().catch(() => {});
+      }
+      showToast(message);
+    }, 220);
+    return;
+  }
+
   localCache.set(snapshot);
   durableCache.set(snapshot);
-  clearTimeout(ui.saveTimer);
   ui.saveTimer = setTimeout(async () => {
     if (pushSubscriptionState === "active") {
       await syncHostedReminderSchedule().catch(() => {});
@@ -447,11 +589,18 @@ function hostedReminderSchedule() {
 }
 
 async function registerHostedSubscription(subscription) {
-  const response = await apiFetch("/api/push/subscribe", {
+  const options = {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ subscription, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
-  });
+  };
+  if (accountModeActive()) {
+    const result = await accountClient.request("/api/push/subscribe", options);
+    if (!result?.deviceToken) throw new Error(result?.error || "Bridge could not register this device.");
+    setPushDeviceToken(result.deviceToken);
+    return result.deviceToken;
+  }
+  const response = await apiFetch("/api/push/subscribe", options);
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.deviceToken) throw new Error(result.error || "Bridge could not register this device.");
   setPushDeviceToken(result.deviceToken);
@@ -526,6 +675,11 @@ async function disableBackgroundPush() {
 async function persistStateSilently() {
   state.meta.updatedAt = nowISO();
   const snapshot = JSON.stringify(state);
+  if (accountModeActive()) {
+    await accountClient.queueState(JSON.parse(snapshot)).catch(() => {});
+    if (pushSubscriptionState === "active") syncHostedReminderSchedule().catch(() => {});
+    return;
+  }
   localCache.set(snapshot);
   durableCache.set(snapshot);
   if (pushSubscriptionState === "active") syncHostedReminderSchedule().catch(() => {});
@@ -578,6 +732,7 @@ window.addEventListener("pointerdown", requestPersistentStorage, { once: true, p
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { checkReminders(); offerPendingCommunication(); } });
 window.addEventListener("focus", () => setTimeout(offerPendingCommunication, 120));
 window.addEventListener("pagehide", () => {
+  if (accountModeActive()) return;
   const snapshot = JSON.stringify(state);
   localCache.set(snapshot);
   durableCache.set(snapshot);
@@ -666,6 +821,76 @@ function offerPendingCommunication() {
   openCommunicationLog(pending.contactId,pending.type||"Call",pending.startedAt);
 }
 
+function accountMigrationSummary() {
+  const source = anonymousSnapshot || defaultState();
+  const contacts = Array.isArray(source.contacts) ? source.contacts.length : 0;
+  const places = Array.isArray(source.places) ? source.places.length : 0;
+  const conversations = (source.contacts || []).reduce((total, contact) => total + (Array.isArray(contact.conversations) ? contact.conversations.length : 0), 0);
+  return { contacts, places, conversations };
+}
+
+function accountMigrationModal() {
+  const summary = accountMigrationSummary();
+  const busy = ui.accountBusy ? "disabled" : "";
+  return `<div class="modal-backdrop account-migration-backdrop"><section class="modal account-migration-modal" role="dialog" aria-modal="true" aria-labelledby="accountMigrationTitle" aria-describedby="accountMigrationDescription">
+    <header class="account-migration-header">
+      <img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt="">
+      <span class="eyebrow">Private workspace</span>
+      <h2 id="accountMigrationTitle">Keep your existing Bridge data?</h2>
+      <p id="accountMigrationDescription">Bridge found information saved only in this browser. Choose whether to copy it into this account or begin with an empty account.</p>
+    </header>
+    <div class="migration-summary" aria-label="Local data found">
+      <div><strong>${summary.contacts}</strong><span>Contact${summary.contacts === 1 ? "" : "s"}</span></div>
+      <div><strong>${summary.conversations}</strong><span>Log${summary.conversations === 1 ? "" : "s"}</span></div>
+      <div><strong>${summary.places}</strong><span>Place${summary.places === 1 ? "" : "s"}</span></div>
+    </div>
+    <p class="migration-safety-note">Copying merges records by their existing IDs and flags conflicts for review. Your original browser-only data is not deleted either way.</p>
+    <div class="migration-actions">
+      <button class="button primary" id="copyLocalBridgeData" type="button" ${busy}>${icons.download}<span>${ui.accountBusy ? "Copying…" : "Copy local data to this account"}</span></button>
+      <button class="button subtle" id="startWithEmptyAccount" type="button" ${busy}>Start with an empty account</button>
+    </div>
+  </section></div>`;
+}
+
+function bindAccountMigrationEvents() {
+  $("#copyLocalBridgeData")?.addEventListener("click", async () => {
+    if (ui.accountBusy) return;
+    ui.accountBusy = true;
+    render();
+    try {
+      const result = await accountClient.importLocalState(anonymousSnapshot || defaultState());
+      state = normalizeState(result.state || state);
+      ui.accountMigrationOpen = false;
+      ui.accountBusy = false;
+      syncAchievements(false);
+      applyAppearance();
+      render();
+      showToast(result.conflicts ? `Data copied with ${result.conflicts} item${result.conflicts === 1 ? "" : "s"} to review` : "Local data copied to your account");
+    } catch (error) {
+      ui.accountBusy = false;
+      render();
+      showToast(error?.message || "Bridge could not copy the local data");
+    }
+  });
+
+  $("#startWithEmptyAccount")?.addEventListener("click", async () => {
+    if (ui.accountBusy || !confirm("Start this account without copying the data already saved in this browser? The browser-only copy will remain available if account mode is later disabled.")) return;
+    ui.accountBusy = true;
+    render();
+    try {
+      await accountClient.skipLocalMigration(anonymousSnapshot || defaultState());
+      ui.accountMigrationOpen = false;
+      ui.accountBusy = false;
+      render();
+      showToast("Account started without copying browser-only data");
+    } catch (error) {
+      ui.accountBusy = false;
+      render();
+      showToast(error?.message || "Bridge could not save that migration choice");
+    }
+  });
+}
+
 function render() {
   const app = $("#app");
   if (ui.sharedScorecard || ui.sharedScorecardLoading || ui.sharedScorecardError) {
@@ -676,10 +901,10 @@ function render() {
   }
   const shouldAnimatePage = lastRenderedPage !== ui.page;
   const shouldAnimateContactMode = ui.page === "contacts" && lastRenderedPage === "contacts" && lastRenderedContactMode !== ui.contactMode;
-  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.releaseNotesOpen));
+  document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.releaseNotesOpen || ui.accountMigrationOpen));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.65" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -687,10 +912,10 @@ function render() {
         ${navButton("followups", "Follow-Ups", "bell")}
         ${navButton("analytics", "Analytics", "chart")}
       </nav>
-      <div class="nav-spacer"></div><div class="sync-status">${cloudStateAvailable ? "Cloud synced" : "Saved on this device"}</div>
+      <div class="nav-spacer"></div><div class="sync-status">${escapeHTML(accountSyncLabel())}</div>
     </aside>
     <main class="main"><section class="page ${shouldAnimatePage ? "page-enter" : shouldAnimateContactMode ? "mode-enter" : ""}">${renderPage()}</section></main>
-  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}${ui.scorecardShareOpen ? scorecardShareModal() : ""}${ui.releaseNotesOpen ? releaseNotesModal() : ""}`;
+  </div>${ui.settingsOpen ? settingsModal() : ""}${ui.achievementsOpen ? achievementsModal() : ""}${ui.detailId ? contactModal(ui.detailId) : ""}${ui.activityHistoryContactId ? activityHistoryModal(ui.activityHistoryContactId) : ""}${ui.communicationContactId ? communicationLogModal(ui.communicationContactId) : ""}${ui.scorecardShareOpen ? scorecardShareModal() : ""}${ui.releaseNotesOpen ? releaseNotesModal() : ""}${ui.accountMigrationOpen ? accountMigrationModal() : ""}`;
   lastRenderedPage = ui.page;
   if (ui.page === "contacts") lastRenderedContactMode = ui.contactMode;
   bindCommonEvents();
@@ -702,17 +927,18 @@ function render() {
   if (ui.communicationContactId) bindCommunicationLogEvents();
   if (ui.scorecardShareOpen) bindScorecardShareEvents();
   if (ui.releaseNotesOpen) bindReleaseNotesEvents();
+  if (ui.accountMigrationOpen) bindAccountMigrationEvents();
   else if (ui.releaseNotesPending && !blockingModalOpen()) setTimeout(maybePresentReleaseNotes, 0);
 }
 
 function renderSharedScorecard() {
-  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.65" alt=""><strong>Opening shared scorecard</strong></div></main>`;
-  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.65" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
   const scorecard = ui.sharedScorecard;
   const metrics = scorecard.metrics || {};
   const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
   const owner = escapeHTML(scorecard.ownerName || "Bridge");
-  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.65" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
 }
 
 function sharedScorecardContact(contact) {
@@ -725,7 +951,7 @@ function bindSharedScorecardEvents() {
 }
 
 function blockingModalOpen() {
-  return Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen);
+  return Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.accountMigrationOpen);
 }
 
 function queueAutomaticReleaseNotes() {
@@ -745,7 +971,7 @@ function maybePresentReleaseNotes() {
 
 function releaseNotesModal() {
   const items = APP_RELEASE.items.map(item => `<li class="release-note-item"><div class="release-note-icon">${icons[item.icon] || icons.sparkles}</div><div><h3>${escapeHTML(item.title)}</h3><p>${escapeHTML(item.description)}</p></div></li>`).join("");
-  return `<div class="modal-backdrop release-notes-backdrop" id="releaseNotesBackdrop"><section class="modal release-notes-modal" role="dialog" aria-modal="true" aria-labelledby="releaseNotesTitle" aria-describedby="releaseNotesVersion"><div class="release-notes-scroll"><header class="release-notes-header"><img class="release-notes-mark" src="./bridge-icon-192.png?v=1.1.65" alt=""><h2 id="releaseNotesTitle">${escapeHTML(APP_RELEASE.title)}</h2><p id="releaseNotesVersion">Version ${escapeHTML(APP_RELEASE.version)}</p></header><ul class="release-notes-list">${items}</ul></div><footer class="release-notes-actions"><button class="button primary" id="continueReleaseNotes" type="button">${icons.circleCheck}<span>Continue</span></button></footer></section></div>`;
+  return `<div class="modal-backdrop release-notes-backdrop" id="releaseNotesBackdrop"><section class="modal release-notes-modal" role="dialog" aria-modal="true" aria-labelledby="releaseNotesTitle" aria-describedby="releaseNotesVersion"><div class="release-notes-scroll"><header class="release-notes-header"><img class="release-notes-mark" src="./bridge-icon-192.png?v=1.1.66" alt=""><h2 id="releaseNotesTitle">${escapeHTML(APP_RELEASE.title)}</h2><p id="releaseNotesVersion">Version ${escapeHTML(APP_RELEASE.version)}</p></header><ul class="release-notes-list">${items}</ul></div><footer class="release-notes-actions"><button class="button primary" id="continueReleaseNotes" type="button">${icons.circleCheck}<span>Continue</span></button></footer></section></div>`;
 }
 
 function releaseFocusableElements() {
@@ -915,20 +1141,126 @@ function bindAchievementEvents() {
   $("#achievementsBackdrop")?.addEventListener("click", event => { if (event.target.id === "achievementsBackdrop") { ui.achievementsOpen = false; render(); } });
 }
 
+function accountModeActive() {
+  return accountContext.mode === "account" && accountContext.authenticated && Boolean(accountClient);
+}
+
+function accountWorkspaceSettings() {
+  if (!accountModeActive()) return "";
+  const user = accountContext.user || {};
+  const status = accountContext.status || {};
+  const pending = Number(status.pending || 0);
+  const conflicts = Number(status.conflicts || 0);
+  const sessions = Array.isArray(ui.accountSessions) ? ui.accountSessions : [];
+  return settingsSection("Bridge Account", `
+    <div class="account-summary">
+      <div class="account-avatar">${escapeHTML(initials([user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "B"))}</div>
+      <div><strong>${escapeHTML([user.firstName, user.lastName].filter(Boolean).join(" ") || "Bridge user")}</strong><small>${escapeHTML(user.email || "")}</small></div>
+      <span class="sync-badge ${escapeHTML(status.state || "synced")}">${escapeHTML(accountSyncLabel())}</span>
+    </div>
+    <div class="account-metrics" aria-label="Account synchronization">
+      <span><strong>${pending}</strong> pending</span>
+      <span><strong>${conflicts}</strong> conflict${conflicts === 1 ? "" : "s"}</span>
+    </div>
+    ${ui.accountPanelError ? `<p class="settings-note account-panel-error">${escapeHTML(ui.accountPanelError)}</p>` : ""}
+    <div class="account-actions">
+      <button class="button subtle" id="syncAccountNow" type="button" ${ui.accountBusy ? "disabled" : ""}>${icons.refresh || icons.check}<span>Sync now</span></button>
+      <button class="button subtle" id="changeAccountPassword" type="button" ${ui.accountBusy ? "disabled" : ""}>Change password</button>
+      <button class="button subtle" id="signOutAccount" type="button" ${ui.accountBusy ? "disabled" : ""}>Sign out</button>
+    </div>
+    <div class="account-session-list">
+      <span class="field-label">Signed-in devices</span>
+      ${!ui.accountPanelLoaded ? `<p class="settings-note">Loading sessions…</p>` : sessions.length ? sessions.map(accountSessionRow).join("") : `<p class="settings-note">No active sessions found.</p>`}
+    </div>
+  `);
+}
+
+function accountSessionRow(session) {
+  const lastSeen = session.lastSeenAt || session.last_seen_at || session.createdAt || session.created_at;
+  return `<div class="account-session-row">
+    <div><strong>${session.current ? "This device" : "Bridge session"}</strong><small>${lastSeen ? `Last active ${escapeHTML(fmtDate(lastSeen, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}` : "Active session"}</small></div>
+    ${session.current ? `<span class="current-session-label">Current</span>` : `<button class="button subtle revoke-account-session" type="button" data-session-id="${escapeHTML(session.id)}">Sign out</button>`}
+  </div>`;
+}
+
+function accountBackupRows() {
+  if (!accountModeActive()) return "";
+  const backups = Array.isArray(ui.accountBackups) ? ui.accountBackups : [];
+  const list = !ui.accountPanelLoaded
+    ? `<p class="settings-note">Loading cloud backups…</p>`
+    : backups.length
+      ? `<div class="backup-list">${backups.map(accountBackupRow).join("")}</div>`
+      : `<p class="settings-note">No cloud backups have been created for this account.</p>`;
+  return `<div class="cloud-backup-block">
+    <div class="account-actions">
+      <button class="button subtle" id="createCloudBackup" type="button" ${ui.accountBusy ? "disabled" : ""}>${icons.download}<span>Create cloud backup</span></button>
+      <button class="button subtle" id="exportAccountData" type="button" ${ui.accountBusy ? "disabled" : ""}>${icons.download}<span>Export my account</span></button>
+    </div>
+    ${list}
+    <div class="account-danger-zone">
+      <strong>Delete Bridge account</strong>
+      <small>Deletes this account's cloud CRM records, revokes sessions, notifications, and scorecard links. Browser-only data is not silently erased.</small>
+      <button class="button destructive" id="deleteBridgeAccount" type="button" ${ui.accountBusy ? "disabled" : ""}>Delete account</button>
+    </div>
+  </div>`;
+}
+
+function accountBackupRow(backup) {
+  const createdAt = backup.createdAt || backup.created_at;
+  const completedAt = backup.completedAt || backup.completed_at;
+  const size = Number(backup.byteSize || backup.byte_size || 0);
+  const label = createdAt ? fmtDate(createdAt, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Cloud backup";
+  return `<div class="backup-row">
+    <div><strong>${escapeHTML(label)}</strong><small>${escapeHTML(backup.status || "complete")}${completedAt ? "" : " · processing"}${size ? ` · ${Math.max(1, Math.round(size / 1024))} KB` : ""}</small></div>
+    <button class="button subtle restore-cloud-backup" type="button" data-backup-id="${escapeHTML(backup.id)}" ${backup.status && backup.status !== "complete" ? "disabled" : ""}>Restore</button>
+  </div>`;
+}
+
+function dataAndBackupSettings() {
+  const local = `${settingsRow("Download all Bridge data",`<button type="button" class="button subtle" id="exportBackup">${icons.download}JSON</button>`)}${settingsRow("Export contacts",`<button type="button" class="button subtle" id="exportCSV">${icons.download}CSV</button>`)}${settingsRow("Restore from JSON backup",`<label class="button subtle">Choose file<input id="importBackup" type="file" accept="application/json" hidden></label>`)}`;
+  return `${accountBackupRows()}${local}`;
+}
+
+async function refreshAccountPanelData() {
+  if (!accountModeActive() || ui.accountPanelLoaded) return;
+  const [account, backups, sessions] = await Promise.allSettled([
+    accountClient.accountDetails(),
+    accountClient.listBackups(),
+    accountClient.listSessions()
+  ]);
+  ui.accountPanelError = "";
+  if (account.status === "fulfilled" && account.value?.user) {
+    accountContext.user = account.value.user;
+  }
+  if (backups.status === "fulfilled") {
+    ui.accountBackups = backups.value?.backups || [];
+  }
+  if (sessions.status === "fulfilled") {
+    ui.accountSessions = sessions.value?.sessions || [];
+  }
+  const failed = [account, backups, sessions].filter(result => result.status === "rejected");
+  if (failed.length) ui.accountPanelError = "Some account details could not be loaded. Your local work remains available.";
+  ui.accountPanelLoaded = true;
+  if (ui.settingsOpen) render();
+}
+
 function settingsModal() {
   const s=state.settings;
+  const profileFirstName=s.firstName||accountContext.user?.firstName||"";
+  const profileLastName=s.lastName||accountContext.user?.lastName||"";
   const selectedAccent=ACCENTS[ui.settingsAccentDraft] ? ui.settingsAccentDraft : s.accent;
   const excludedDates=normalizeExcludedDates(Array.isArray(ui.settingsExcludedDatesDraft) ? ui.settingsExcludedDatesDraft : s.streakExcludedDates);
   const restRules=normalizeRestRules(Array.isArray(ui.settingsRestRulesDraft) ? ui.settingsRestRulesDraft : s.streakRestRules);
   const restFrequency=["once","weekly","monthly","yearly"].includes(ui.settingsRestFrequencyDraft)?ui.settingsRestFrequencyDraft:"once";
   const todayExcluded=dailyGoalMetrics({...state,settings:{...s,streakExcludedDates:excludedDates,streakRestRules:restRules}}).todayExcluded;
   return `<div class="modal-backdrop" id="settingsBackdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><header class="modal-head"><h2 id="settingsTitle">Settings</h2><button class="icon-button close-modal" aria-label="Close">${icons.close}</button></header><div class="modal-body"><form id="settingsForm">
-    ${settingsSection("Profile & Goals",`${settingsRow("First name",`<input name="firstName" value="${escapeHTML(s.firstName)}" placeholder="First name" autocomplete="given-name">`)}${settingsRow("Last name",`<input name="lastName" value="${escapeHTML(s.lastName)}" placeholder="Last name" autocomplete="family-name">`)}${settingsRow("Business name",`<input name="businessName" value="${escapeHTML(s.businessName)}" placeholder="Business">`)}${settingsRow("Daily goal",`<input name="dailyGoal" type="number" min="1" max="100" value="${s.dailyGoal}">`)}${settingsRow("Weekly goal",`<input name="weeklyGoal" type="number" min="1" max="500" value="${s.weeklyGoal}">`)}${settingsRow("Monthly goal",`<input name="monthlyGoal" type="number" min="1" max="2000" value="${s.monthlyGoal}">`)}`)}
+    ${accountWorkspaceSettings()}
+    ${settingsSection("Profile & Goals",`${settingsRow("First name",`<input name="firstName" value="${escapeHTML(profileFirstName)}" placeholder="First name" autocomplete="given-name">`)}${settingsRow("Last name",`<input name="lastName" value="${escapeHTML(profileLastName)}" placeholder="Last name" autocomplete="family-name">`)}${settingsRow("Business name",`<input name="businessName" value="${escapeHTML(s.businessName)}" placeholder="Business">`)}${settingsRow("Daily goal",`<input name="dailyGoal" type="number" min="1" max="100" value="${s.dailyGoal}">`)}${settingsRow("Weekly goal",`<input name="weeklyGoal" type="number" min="1" max="500" value="${s.weeklyGoal}">`)}${settingsRow("Monthly goal",`<input name="monthlyGoal" type="number" min="1" max="2000" value="${s.monthlyGoal}">`)}`)}
     ${settingsSection("Streak Settings",`<p class="settings-note streak-settings-copy">Rest days protect your streak without adding a day.</p><div class="rest-rule-builder"><label class="field"><span>Repeats</span><select id="streakRestFrequency" aria-label="Rest day repeat frequency"><option value="once" ${restFrequency==="once"?"selected":""}>Does not repeat</option><option value="weekly" ${restFrequency==="weekly"?"selected":""}>Every week</option><option value="monthly" ${restFrequency==="monthly"?"selected":""}>Every month</option><option value="yearly" ${restFrequency==="yearly"?"selected":""}>Every year</option></select></label><div class="rest-rule-panel" data-rest-panel="once" ${restFrequency==="once"?"":"hidden"}><label class="field"><span>Rest date</span><input id="oneTimeRestDate" type="date" aria-label="One-time rest date"></label><small>Applies to this date only.</small></div><div class="rest-rule-panel" data-rest-panel="weekly" ${restFrequency==="weekly"?"":"hidden"}><span class="field-label">Rest days</span><div class="weekday-picker" role="group" aria-label="Weekly rest days">${weekdayButtons()}</div><small>Choose one or more days.</small></div><div class="rest-rule-panel" data-rest-panel="monthly" ${restFrequency==="monthly"?"":"hidden"}><label class="field"><span>Day of month</span><input id="monthlyRestDay" type="number" min="1" max="31" inputmode="numeric" placeholder="1–31"></label><small>Skipped in shorter months.</small></div><div class="rest-rule-panel" data-rest-panel="yearly" ${restFrequency==="yearly"?"":"hidden"}><label class="field"><span>Annual rest date</span><input id="yearlyRestDate" type="date" aria-label="Annual rest date"></label><small>Repeats each year.</small></div><button class="button subtle rest-rule-add" id="addStreakRestRule" type="button">${icons.plus}<span>Add rest day</span></button></div><div id="oneTimeRestDaysSection" class="legacy-rest-days" ${excludedDates.length?"":"hidden"}><span class="field-label">One-time</span><div id="streakRestDays" class="rest-day-list">${restDayRows(excludedDates)}</div></div><div id="streakRestRules" class="rest-day-list" aria-live="polite">${restRuleRows(restRules)}</div><p id="todayRestDayStatus" class="settings-note rest-day-status ${todayExcluded?"active":""}">${todayExcluded?"Today is a rest day.":"Today counts toward your goal."}</p>`)}
     ${settingsSection("Workflow",`${settingsRow("Default follow-up",`<select name="defaultFollowUpDays"><option value="1" ${s.defaultFollowUpDays==1?"selected":""}>1 day</option><option value="2" ${s.defaultFollowUpDays==2?"selected":""}>2 days</option><option value="7" ${s.defaultFollowUpDays==7?"selected":""}>1 week</option></select>`)}${settingsRow("Week starts",`<select name="weekStart"><option value="0" ${s.weekStart==0?"selected":""}>Sunday</option><option value="1" ${s.weekStart==1?"selected":""}>Monday</option></select>`)}<div class="settings-row settings-row-explained"><span><strong>Automatically archive inactive contacts after 30 days</strong><small>Contacts with no pipeline stage, no MSA activity, no scheduled follow-up, and no pipeline progress leave the active list after 30 days. Historical activity remains in Analytics.</small></span><input type="checkbox" name="autoArchiveInactive" ${s.autoArchiveInactive?"checked":""}></div><p class="settings-note">${state.contacts.filter(contact=>contact.archivedAt).length} archived contact${state.contacts.filter(contact=>contact.archivedAt).length===1?"":"s"}. View and restore them from the Contacts visibility filter.</p>`)}
     ${settingsSection("Notifications",notificationSettings(s))}
     ${settingsSection("Appearance",`${settingsRow("Theme",`<select name="theme"><option value="system" ${s.theme==="system"?"selected":""}>System</option><option value="light" ${s.theme==="light"?"selected":""}>Light</option><option value="dark" ${s.theme==="dark"?"selected":""}>Dark</option></select>`)}${settingsRow("Accent color",`<div class="accent-options"><input type="hidden" name="accent" value="${escapeHTML(selectedAccent)}">${Object.entries(ACCENTS).map(([name,[color]])=>`<button type="button" class="accent-dot ${selectedAccent===name?"active":""}" data-accent="${name}" title="${name}" aria-label="${name}" aria-pressed="${selectedAccent===name}" style="background:${color};color:${color}"></button>`).join("")}</div>`)}${settingsRow("Compact cards",`<input type="checkbox" name="compact" ${s.compact?"checked":""}>`)}`)}
-    ${settingsSection("Data & Backup",`${settingsRow("Download all Bridge data",`<button type="button" class="button subtle" id="exportBackup">${icons.download}JSON</button>`)}${settingsRow("Export contacts",`<button type="button" class="button subtle" id="exportCSV">${icons.download}CSV</button>`)}${settingsRow("Restore from backup",`<label class="button subtle">Choose file<input id="importBackup" type="file" accept="application/json" hidden></label>`)}`)}
+    ${settingsSection("Data & Backup",dataAndBackupSettings())}
     ${settingsSection("About",`${settingsRow("Version",`<strong>${escapeHTML(APP_RELEASE.version)}</strong>`)}${settingsRow("What's New",`<button type="button" class="button subtle" id="openReleaseNotes">${icons.sparkles}<span>View</span></button>`)}`)}
     ${settingsSection("Support",`${settingsRow("Send feedback",`<a class="button subtle" href="mailto:fountainofyouthxs@gmail.com?subject=Bridge%20Feedback">Email</a>`)}${settingsRow("Report a bug",`<a class="button subtle" href="mailto:fountainofyouthxs@gmail.com?subject=Bridge%20Bug%20Report">Email</a>`)}`)}
     <div class="form-actions"><button class="button primary" type="submit">Save settings</button></div></form></div></section></div>`;
@@ -1055,7 +1387,7 @@ function bindCommonEvents(){
 }
 
 function bindPageEvents(){
-  $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsExcludedDatesDraft=[...normalizeExcludedDates(state.settings.streakExcludedDates)];ui.settingsRestRulesDraft=normalizeRestRules(state.settings.streakRestRules);ui.settingsRestFrequencyDraft="once";ui.settingsOpen=true;render();});
+  $('#settingsButton')?.addEventListener('click',()=>{ui.settingsAccentDraft=state.settings.accent;ui.settingsExcludedDatesDraft=[...normalizeExcludedDates(state.settings.streakExcludedDates)];ui.settingsRestRulesDraft=normalizeRestRules(state.settings.streakRestRules);ui.settingsRestFrequencyDraft="once";ui.accountPanelLoaded=false;ui.accountPanelError="";ui.settingsOpen=true;render();refreshAccountPanelData().catch(()=>{});});
   $('#shareScorecard')?.addEventListener('click',()=>{ui.scorecardShareOpen=true;ui.scorecardConfirmed=false;render();});
   $$('[data-contact-mode]').forEach(button=>button.addEventListener('click',()=>{const nextMode=button.dataset.contactMode;if(ui.contactMode===nextMode)return;if(nextMode==="pipeline"&&["No-Go","Archived"].includes(ui.visibilityFilter))ui.visibilityFilter="Active";ui.contactMode=nextMode;render();}));
   $('#contactSearch')?.addEventListener('input',event=>{ui.search=event.target.value;const cursor=event.target.selectionStart;clearTimeout(searchRenderTimer);searchRenderTimer=setTimeout(()=>{render();const input=$('#contactSearch');input?.focus();input?.setSelectionRange(cursor,cursor);},100);});
@@ -1249,11 +1581,16 @@ async function shareScorecardImage() {
 async function createScorecardLink() {
   const snapshot = scorecardSnapshot();
   const previewPNG = scorecardPreviewPNG(snapshot);
-  const response = await apiFetch("/api/scorecards", {
+  const options = {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ scorecard: snapshot, previewPNG })
-  });
+  };
+  if (accountModeActive()) {
+    const result = await accountClient.request("/api/scorecards", options);
+    return { snapshot, ...result };
+  }
+  const response = await apiFetch("/api/scorecards", options);
   const contentType = response.headers.get("content-type") || "";
   const result = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
   if (!response.ok) throw new Error(result.error || "Secure scorecards require the hosted Bridge app.");
@@ -1324,8 +1661,131 @@ function handleAddContact(event){
   state.contacts.unshift(contact); queueSave('Conversation saved'); ui.page='contacts'; render();
 }
 
+function downloadBlob(name, blob) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function showSignedOutAccount(message) {
+  clearInterval(reminderTimer);
+  reminderTimer = null;
+  navigator.serviceWorker?.controller?.postMessage({ type: "bridge-account-logout" });
+  state = defaultState();
+  stateHydrated = false;
+  anonymousSnapshot = null;
+  ui.settingsOpen = false;
+  ui.accountMigrationOpen = false;
+  ui.accountBusy = false;
+  accountContext = {
+    ...accountContext,
+    authenticated: false,
+    user: null,
+    status: { state: "signed-out", message: "Signed out", pending: 0, conflicts: 0 }
+  };
+  accountClient.renderAuthScreen({ message });
+}
+
 function bindSettingsEvents(){
   $('#openReleaseNotes')?.addEventListener('click',()=>{releaseFocusReturn=document.activeElement;ui.settingsOpen=false;ui.releaseNotesReturnToSettings=true;ui.releaseNotesOpen=true;render();});
+  $('#syncAccountNow')?.addEventListener('click',async()=>{
+    if(ui.accountBusy)return;
+    ui.accountBusy=true;render();
+    try{
+      const result=await accountClient.syncNow({state});
+      if(result?.state)state=normalizeState(result.state);
+      ui.accountPanelLoaded=false;
+      ui.accountBusy=false;
+      render();
+      refreshAccountPanelData().catch(()=>{});
+      showToast('Account synced');
+    }catch(error){
+      ui.accountBusy=false;render();showToast(error?.message||'Bridge could not sync this account');
+    }
+  });
+  $('#signOutAccount')?.addEventListener('click',async()=>{
+    if(ui.accountBusy)return;
+    const pending=Number(accountContext.status?.pending||0);
+    if(!confirm(pending?`Sign out with ${pending} pending change${pending===1?'':'s'}? They will remain encrypted in this browser and resume after you sign in again.`:'Sign out of Bridge on this device?'))return;
+    ui.accountBusy=true;render();
+    await disableBackgroundPush().catch(()=>{});
+    await accountClient.logout();
+    showSignedOutAccount(pending?'Signed out. Pending changes are preserved on this device.':'Signed out of Bridge.');
+  });
+  $('#changeAccountPassword')?.addEventListener('click',async()=>{
+    if(ui.accountBusy)return;
+    const currentPassword=prompt('Enter your current Bridge password:');
+    if(currentPassword===null)return;
+    const newPassword=prompt('Enter a new password of at least 12 characters:');
+    if(newPassword===null)return;
+    if(newPassword.length<12){showToast('Use a password of at least 12 characters');return;}
+    ui.accountBusy=true;render();
+    try{
+      await accountClient.changePassword(currentPassword,newPassword);
+      ui.accountBusy=false;ui.accountPanelLoaded=false;render();refreshAccountPanelData().catch(()=>{});
+      showToast('Password changed. Other devices were signed out.');
+    }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Bridge could not change the password');}
+  });
+  $$('.revoke-account-session').forEach(button=>button.addEventListener('click',async()=>{
+    if(ui.accountBusy||!confirm('Sign this device out of Bridge?'))return;
+    ui.accountBusy=true;render();
+    try{
+      await accountClient.revokeSession(button.dataset.sessionId);
+      ui.accountSessions=ui.accountSessions.filter(session=>session.id!==button.dataset.sessionId);
+      ui.accountBusy=false;render();showToast('Session signed out');
+    }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Bridge could not revoke that session');}
+  }));
+  $('#createCloudBackup')?.addEventListener('click',async()=>{
+    if(ui.accountBusy)return;
+    ui.accountBusy=true;render();
+    try{
+      await accountClient.createBackup();
+      ui.accountPanelLoaded=false;ui.accountBusy=false;render();refreshAccountPanelData().catch(()=>{});
+      showToast('Cloud backup created');
+    }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Cloud backups are not configured');}
+  });
+  $('#exportAccountData')?.addEventListener('click',async()=>{
+    if(ui.accountBusy)return;
+    ui.accountBusy=true;render();
+    try{
+      const blob=await accountClient.downloadAccountExport();
+      downloadBlob(`bridge-account-export-${todayInput()}.json`,blob);
+      ui.accountBusy=false;render();showToast('Account export downloaded');
+    }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Bridge could not export this account');}
+  });
+  $$('.restore-cloud-backup').forEach(button=>button.addEventListener('click',async()=>{
+    if(ui.accountBusy)return;
+    ui.accountBusy=true;render();
+    try{
+      const preview=await accountClient.previewBackup(button.dataset.backupId);
+      ui.accountBusy=false;render();
+      const counts=preview?.counts||{};
+      if(!confirm(`Restore this backup with ${Number(counts.contacts||0)} contacts and ${Number(counts.places||0)} places? Bridge will create a safety backup first and replace this account's current cloud records.`))return;
+      const password=prompt('Enter your Bridge password to continue:');
+      if(password===null)return;
+      const confirmation=prompt('Type RESTORE to confirm:');
+      if(confirmation!=='RESTORE'){showToast('Restore canceled');return;}
+      ui.accountBusy=true;render();
+      const restored=await accountClient.restoreBackup(button.dataset.backupId,password,confirmation);
+      if(restored?.state)state=normalizeState(restored.state);
+      ui.accountBusy=false;ui.settingsOpen=false;applyAppearance();render();showToast('Cloud backup restored');
+    }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Bridge could not restore that backup');}
+  }));
+  $('#deleteBridgeAccount')?.addEventListener('click',async()=>{
+    if(ui.accountBusy||!confirm('Delete this Bridge account and its private cloud CRM data? This cannot be undone. Existing browser-only data is not silently erased.'))return;
+    const password=prompt('Enter your Bridge password:');
+    if(password===null)return;
+    const confirmation=prompt('Type DELETE to permanently delete this account:');
+    if(confirmation!=='DELETE'){showToast('Account deletion canceled');return;}
+    ui.accountBusy=true;render();
+    try{
+      await accountClient.deleteAccount(password,confirmation);
+      showSignedOutAccount('Your Bridge account was deleted.');
+    }catch(error){ui.accountBusy=false;render();showToast(error?.message||'Bridge could not delete this account');}
+  });
   $$('.accent-dot').forEach(button=>button.addEventListener('click',()=>{const accent=button.dataset.accent;if(!ACCENTS[accent])return;ui.settingsAccentDraft=accent;const input=$('#settingsForm input[name="accent"]');if(input)input.value=accent;$$('.accent-dot').forEach(dot=>{const selected=dot===button;dot.classList.toggle('active',selected);dot.setAttribute('aria-pressed',String(selected));});}));
   $('#streakRestFrequency')?.addEventListener('change',event=>{ui.settingsRestFrequencyDraft=event.target.value;$$('[data-rest-panel]').forEach(panel=>{panel.hidden=panel.dataset.restPanel!==ui.settingsRestFrequencyDraft;});});
   $$('.weekday-button').forEach(button=>button.addEventListener('click',()=>{const selected=button.getAttribute('aria-pressed')!=='true';button.setAttribute('aria-pressed',String(selected));button.classList.toggle('active',selected);}));
@@ -1373,7 +1833,7 @@ function bindSettingsEvents(){
   $('#requestNotifications')?.addEventListener('click',async()=>{try{pushSubscriptionState='checking';await enableBackgroundPush();queueSave('Background reminders enabled');render();startReminderChecks();}catch(error){await refreshPushSubscriptionState();showToast(error?.message||'Background reminders could not be enabled');render();}});
   $('#testPushNotification')?.addEventListener('click',async()=>{try{const subscription=await currentPushSubscription();const token=pushDeviceToken();if(!subscription||!token)throw new Error('Enable background reminders first');const response=await apiFetch('/api/push/test-device',{method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({endpoint:subscription.endpoint})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Test notification failed');showToast('Test notification sent');}catch(error){showToast(error?.message||'Test notification failed');}});
   $('#disablePushNotifications')?.addEventListener('click',async()=>{await disableBackgroundPush();state.settings.notificationsEnabled=false;queueSave('Background reminders disabled on this device');render();startReminderChecks();});
-  $('#settingsForm')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.currentTarget);const accent=String(f.get('accent')||state.settings.accent);const firstName=String(f.get('firstName')||'').trim();const lastName=String(f.get('lastName')||'').trim();state.settings={...state.settings,name:[firstName,lastName].filter(Boolean).join(' '),firstName,lastName,businessName:String(f.get('businessName')||''),dailyGoal:Number(f.get('dailyGoal'))||5,weeklyGoal:Number(f.get('weeklyGoal'))||25,monthlyGoal:Number(f.get('monthlyGoal'))||100,defaultFollowUpDays:Number(f.get('defaultFollowUpDays'))||2,weekStart:Number(f.get('weekStart'))||0,theme:String(f.get('theme')),accent:ACCENTS[accent]?accent:state.settings.accent,compact:f.has('compact'),autoArchiveInactive:f.has('autoArchiveInactive'),notificationsEnabled:f.has('notificationsEnabled')&&notificationPermission()==='granted',followUpNotifications:f.has('followUpNotifications'),dailyReminderEnabled:f.has('dailyReminderEnabled'),dailyReminderTime:String(f.get('dailyReminderTime')||'09:00'),streakExcludedDates:normalizeExcludedDates(ui.settingsExcludedDatesDraft),streakRestRules:normalizeRestRules(ui.settingsRestRulesDraft)};const archived=archiveInactiveContacts(state.contacts,state.settings.autoArchiveInactive);ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;applyAppearance();queueSave(archived?`${archived} inactive contact${archived===1?'':'s'} archived`:'Settings saved');ui.settingsOpen=false;render();startReminderChecks();});
+  $('#settingsForm')?.addEventListener('submit',async event=>{event.preventDefault();const f=new FormData(event.currentTarget);const accent=String(f.get('accent')||state.settings.accent);const firstName=String(f.get('firstName')||'').trim();const lastName=String(f.get('lastName')||'').trim();if(accountModeActive()){try{const result=await accountClient.updateAccount({firstName,lastName});if(result?.user)accountContext.user=result.user;}catch(error){showToast(error?.message||'Bridge could not update the account profile');return;}}state.settings={...state.settings,name:[firstName,lastName].filter(Boolean).join(' '),firstName,lastName,businessName:String(f.get('businessName')||''),dailyGoal:Number(f.get('dailyGoal'))||5,weeklyGoal:Number(f.get('weeklyGoal'))||25,monthlyGoal:Number(f.get('monthlyGoal'))||100,defaultFollowUpDays:Number(f.get('defaultFollowUpDays'))||2,weekStart:Number(f.get('weekStart'))||0,theme:String(f.get('theme')),accent:ACCENTS[accent]?accent:state.settings.accent,compact:f.has('compact'),autoArchiveInactive:f.has('autoArchiveInactive'),notificationsEnabled:f.has('notificationsEnabled')&&notificationPermission()==='granted',followUpNotifications:f.has('followUpNotifications'),dailyReminderEnabled:f.has('dailyReminderEnabled'),dailyReminderTime:String(f.get('dailyReminderTime')||'09:00'),streakExcludedDates:normalizeExcludedDates(ui.settingsExcludedDatesDraft),streakRestRules:normalizeRestRules(ui.settingsRestRulesDraft)};const archived=archiveInactiveContacts(state.contacts,state.settings.autoArchiveInactive);ui.settingsAccentDraft=null;ui.settingsExcludedDatesDraft=null;ui.settingsRestRulesDraft=null;applyAppearance();queueSave(archived?`${archived} inactive contact${archived===1?'':'s'} archived`:'Settings saved');ui.settingsOpen=false;render();startReminderChecks();});
   $('#exportBackup')?.addEventListener('click',()=>downloadFile(`bridge-backup-${todayInput()}.json`,JSON.stringify(state,null,2),'application/json'));
   $('#exportCSV')?.addEventListener('click',()=>{const rows=[['Name','Phone','Role','Interest','Judgement','Conversation Type','Place','Date First Met','Pipeline'],...state.contacts.map(c=>[c.fullName,c.phoneNumber,c.role,c.interestLevel,c.judgement,c.conversationType,c.placeName,c.dateFirstMet,stageFor(c)])];downloadFile(`bridge-contacts-${todayInput()}.csv`,rows.map(r=>r.map(csvCell).join(',')).join('\n'),'text/csv');});
   $('#importBackup')?.addEventListener('change',async event=>{const file=event.target.files?.[0];if(!file)return;try{const imported=normalizeState(JSON.parse(await file.text()));if(!confirm(`Restore ${imported.contacts.length} contacts and replace current Bridge data?`))return;state=imported;applyAppearance();queueSave('Backup restored');ui.settingsOpen=false;render();}catch{showToast('That backup file could not be read');}});
@@ -1435,5 +1895,15 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
   window.addEventListener("load", () => navigator.serviceWorker.register(`./sw.js?v=${APP_RELEASE.version}`).catch(() => {}), { once: true });
 }
 
-if (sharedScorecardToken) loadSharedScorecard(sharedScorecardToken);
-else loadState();
+startBridge().catch(error => {
+  console.error("Bridge startup failed", error);
+  if (accountContext.mode === "account") {
+    accountClient?.renderAuthScreen({ error: "Bridge could not open your private workspace. Check your connection and try again." });
+    return;
+  }
+  loadState().catch(() => {
+    state = defaultState();
+    finishStateHydration();
+    showToast("Bridge opened with a new local workspace");
+  });
+});

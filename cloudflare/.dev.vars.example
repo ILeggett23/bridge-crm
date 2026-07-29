@@ -1,0 +1,10 @@
+# Copy this file to .dev.vars for local Worker development.
+# Never commit .dev.vars or production values.
+
+AUTH_ENABLED=false
+AUTH_REQUIRE_TURNSTILE=false
+AUTH_HASH_PEPPER=replace-with-a-long-random-local-development-value
+TURNSTILE_SITE_KEY=replace-with-a-development-site-key
+TURNSTILE_SECRET_KEY=replace-with-a-development-secret-key
+AUTH_EMAIL_FROM=no-reply@example.com
+AUTH_EMAIL_NAME=Bridge CRM
