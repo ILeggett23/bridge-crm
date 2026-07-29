@@ -1,12 +1,37 @@
-const CACHE = "bridge-app-v1.1.64";
+const CACHE = "bridge-app-v1.1.65";
 const ROOT = new URL("./", self.location.href).href;
-importScripts(new URL("config.js?v=1.1.64", ROOT).href);
+const APP_ROOT = new URL(ROOT);
+const FOLLOW_UP_FALLBACK = new URL("?page=followups&notification=1", APP_ROOT).href;
+importScripts(new URL("config.js?v=1.1.65", ROOT).href);
 const API_BASE = String(self.BridgeConfig?.apiBase || "").replace(/\/+$/, "");
 const apiURL = path => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 const SHELL = [ROOT, new URL("index.html", ROOT).href, new URL("config.js", ROOT).href, new URL("contact-logic.js", ROOT).href, new URL("engagement-logic.js", ROOT).href, new URL("communication-logic.js", ROOT).href, new URL("analytics-logic.js", ROOT).href, new URL("scorecard-logic.js", ROOT).href, new URL("release-logic.js", ROOT).href, new URL("app.js", ROOT).href, new URL("styles.css", ROOT).href, new URL("manifest.webmanifest", ROOT).href, new URL("bridge-icon-192.png", ROOT).href, new URL("bridge-icon-512.png", ROOT).href, new URL("apple-touch-icon.png", ROOT).href];
 
 const PUSH_STORE = "bridge-push-settings";
 const PUSH_KEY = "reminder-schedule";
+
+function notificationTarget(value) {
+  try {
+    const candidate = new URL(value || FOLLOW_UP_FALLBACK, APP_ROOT);
+    const rootPath = APP_ROOT.pathname.endsWith("/") ? APP_ROOT.pathname : `${APP_ROOT.pathname}/`;
+    const appPath = candidate.pathname === rootPath.slice(0, -1) || candidate.pathname.startsWith(rootPath);
+    if (candidate.origin !== APP_ROOT.origin || !appPath) return FOLLOW_UP_FALLBACK;
+    candidate.searchParams.set("notification", "1");
+    return candidate.href;
+  } catch {
+    return FOLLOW_UP_FALLBACK;
+  }
+}
+
+function isBridgeClient(client) {
+  try {
+    const candidate = new URL(client.url);
+    const rootPath = APP_ROOT.pathname.endsWith("/") ? APP_ROOT.pathname : `${APP_ROOT.pathname}/`;
+    return candidate.origin === APP_ROOT.origin && (candidate.pathname === rootPath.slice(0, -1) || candidate.pathname.startsWith(rootPath));
+  } catch {
+    return false;
+  }
+}
 function pushDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(PUSH_STORE, 1);
@@ -58,11 +83,11 @@ self.addEventListener("push", event => {
   const title = payload.title || "Bridge follow-up";
   const options = {
     body: payload.body || "A scheduled follow-up is ready.",
-    icon: new URL("bridge-icon-192.png?v=1.1.64", ROOT).href,
-    badge: new URL("bridge-icon-192.png?v=1.1.64", ROOT).href,
+    icon: new URL("bridge-icon-192.png?v=1.1.65", ROOT).href,
+    badge: new URL("bridge-icon-192.png?v=1.1.65", ROOT).href,
     tag: payload.tag || "bridge-followup",
     renotify: false,
-    data: { url: payload.url || "./?page=followups" }
+    data: { url: notificationTarget(payload.url) }
   };
   event.waitUntil(Promise.all([
     self.registration.showNotification(title, options),
@@ -103,11 +128,16 @@ self.addEventListener("pushsubscriptionchange", event => {
 
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-  if ("clearAppBadge" in navigator) navigator.clearAppBadge().catch(() => {});
-  const target = new URL(event.notification.data?.url || "./", ROOT).href;
-  event.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then(windows => {
-    const existing = windows.find(client => new URL(client.url).origin === new URL(target).origin);
-    if (existing) return existing.navigate(target).then(client => client.focus());
-    return clients.openWindow(target);
-  }));
+  const target = notificationTarget(event.notification.data?.url);
+  const clearBadge = "clearAppBadge" in navigator ? navigator.clearAppBadge().catch(() => {}) : Promise.resolve();
+  const navigate = self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async windows => {
+    const existing = windows.filter(isBridgeClient).sort((left, right) => Number(right.focused) - Number(left.focused))[0];
+    if (existing) {
+      await existing.focus();
+      existing.postMessage({ type: "bridge-notification-navigation", url: target });
+      return existing;
+    }
+    return self.clients.openWindow(target);
+  });
+  event.waitUntil(Promise.all([clearBadge, navigate]));
 });
