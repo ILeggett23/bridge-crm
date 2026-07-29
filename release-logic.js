@@ -1,8 +1,8 @@
 (function (global) {
   const RELEASE_STORAGE_KEY = "bridgeLastSeenVersion";
   const APP_RELEASE = Object.freeze({
-    version: "1.1.64",
-    assetVersion: "v1.1.64",
+    version: "1.1.65",
+    assetVersion: "v1.1.65",
     title: "What's New",
     items: Object.freeze([
       Object.freeze({
@@ -16,9 +16,9 @@
         description: "Protect your streak with one-time or repeating rest-day schedules."
       }),
       Object.freeze({
-        icon: "sparkles",
-        title: "Cleaner pipeline tracking",
-        description: "Prospect and customer stages are simpler, clearer, and easier to scan."
+        icon: "bell",
+        title: "Reliable reminder links",
+        description: "Follow-up notifications now open the right place in Bridge."
       })
     ])
   });
