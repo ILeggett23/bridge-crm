@@ -175,10 +175,52 @@ const launchParams = new URLSearchParams(location.search);
 if (["dashboard", "contacts", "add", "followups", "analytics"].includes(launchParams.get("page"))) ui.page = launchParams.get("page");
 if (launchParams.get("contact")) ui.detailId = launchParams.get("contact");
 const sharedScorecardToken = String(launchParams.get("shared") || "").trim();
+let stateHydrated = false;
+let pendingNotificationNavigationURL = "";
 const cloudStateAvailable = document.querySelector('meta[name="bridge-cloud-state"]')?.content === "enabled";
 const apiBase = String(globalThis.BridgeConfig?.apiBase || "").replace(/\/+$/, "");
 const apiURL = path => apiBase ? `${apiBase}${path.startsWith("/") ? path : `/${path}`}` : path;
 const apiFetch = (path, options) => fetch(apiURL(path), options);
+
+function clearNotificationRoute(url) {
+  try {
+    const next = new URL(url, location.href);
+    ["notification", "page", "contact", "followUp"].forEach(key => next.searchParams.delete(key));
+    history.replaceState(history.state, "", `${next.pathname}${next.search}${next.hash}`);
+  } catch {}
+}
+
+function consumeNotificationNavigation(url, { renderNow = true } = {}) {
+  let target;
+  try { target = new URL(url, location.href); }
+  catch { return false; }
+  if (target.searchParams.get("notification") !== "1") return false;
+
+  const requestedPage = target.searchParams.get("page");
+  ui.page = ["dashboard", "contacts", "add", "followups", "analytics"].includes(requestedPage) ? requestedPage : "followups";
+  ui.detailId = null;
+  let notice = "";
+
+  if (ui.page === "followups") {
+    const contactId = String(target.searchParams.get("contact") || "");
+    const followUpId = String(target.searchParams.get("followUp") || "");
+    if (contactId) {
+      const contact = state.contacts.find(item => String(item.id) === contactId);
+      const followUp = contact?.followUps?.find(item => String(item.id) === followUpId);
+      const unavailable = !contact || contact.archivedAt || contact.isFilteredOut || (followUpId && (!followUp || followUp.completedAt));
+      if (unavailable) notice = "That follow-up is no longer active.";
+      else ui.detailId = contact.id;
+    }
+  }
+
+  clearNotificationRoute(target.href);
+  if (renderNow) {
+    render();
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+  if (notice) setTimeout(() => showToast(notice), 0);
+  return true;
+}
 
 function normalizeState(raw) {
   const base = defaultState();
@@ -259,6 +301,9 @@ async function loadState() {
     durableCache.set(snapshot);
     syncAchievements(false);
     applyAppearance();
+    stateHydrated = true;
+    consumeNotificationNavigation(pendingNotificationNavigationURL || location.href, { renderNow: false });
+    pendingNotificationNavigationURL = "";
     render();
     queueAutomaticReleaseNotes();
     await refreshPushSubscriptionState();
@@ -280,6 +325,9 @@ async function loadState() {
   }
   syncAchievements(false);
   applyAppearance();
+  stateHydrated = true;
+  consumeNotificationNavigation(pendingNotificationNavigationURL || location.href, { renderNow: false });
+  pendingNotificationNavigationURL = "";
   render();
   queueAutomaticReleaseNotes();
   await refreshPushSubscriptionState();
@@ -381,6 +429,7 @@ function hostedReminderSchedule() {
       .filter(item => !item.completedAt && Number.isFinite(new Date(item.dueDate).getTime()))
       .map(item => ({
         id: String(item.id),
+        contactId: String(contact.id),
         dueDate: item.dueDate,
         contactName: String(contact.fullName || "your contact").slice(0, 100),
         note: String(item.note || "Your scheduled follow-up").slice(0, 180)
@@ -630,7 +679,7 @@ function render() {
   document.body.classList.toggle("modal-open", Boolean(ui.settingsOpen || ui.achievementsOpen || ui.detailId || ui.activityHistoryContactId || ui.communicationContactId || ui.scorecardShareOpen || ui.releaseNotesOpen));
   app.innerHTML = `<div class="app-shell">
     <aside class="sidebar glass">
-      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.64" alt="" /><span>Bridge</span></div>
+      <div class="brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.65" alt="" /><span>Bridge</span></div>
       <nav class="nav" aria-label="Primary navigation">
         ${navButton("dashboard", "Dashboard", "home")}
         ${navButton("contacts", "Contacts", "people")}
@@ -657,13 +706,13 @@ function render() {
 }
 
 function renderSharedScorecard() {
-  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.64" alt=""><strong>Opening shared scorecard</strong></div></main>`;
-  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.64" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
+  if (ui.sharedScorecardLoading) return `<main class="shared-scorecard-shell"><div class="shared-scorecard-loading"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.65" alt=""><strong>Opening shared scorecard</strong></div></main>`;
+  if (ui.sharedScorecardError) return `<main class="shared-scorecard-shell"><section class="shared-scorecard card glass"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.65" alt=""><span>Bridge</span></div><h1>Scorecard unavailable</h1><p class="muted">${escapeHTML(ui.sharedScorecardError)}</p></section></main>`;
   const scorecard = ui.sharedScorecard;
   const metrics = scorecard.metrics || {};
   const contacts = Array.isArray(scorecard.contacts) ? scorecard.contacts : [];
   const owner = escapeHTML(scorecard.ownerName || "Bridge");
-  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.64" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
+  return `<main class="shared-scorecard-shell"><section class="shared-scorecard"><div class="shared-brand"><img class="brand-mark" src="./bridge-icon-192.png?v=1.1.65" alt=""><span>Bridge</span></div><header class="shared-scorecard-head"><span class="eyebrow">Shared by ${owner}</span><h1>${owner}'s Scorecard</h1><p>${escapeHTML(scorecard.periodLabel || "Today")}</p></header><div class="grid stats-grid shared-metrics">${statCard("chart", metrics.conversations || 0, "Conversations")}${statCard("contactCard", metrics.contacts || 0, "Contacts")}${statCard("people", metrics.prospects || 0, "Prospects")}${statCard("target", metrics.prospectiveCustomers || 0, "Prospective Customers")}</div><p class="shared-summary">${escapeHTML(`${metrics.conversations || 0} conversation${Number(metrics.conversations) === 1 ? "" : "s"} in this period`)}</p>${scorecard.includeContacts && contacts.length ? `<button class="button primary shared-contacts-button" id="toggleSharedContacts" type="button">${icons.people}<span>${ui.sharedScorecardContactsOpen ? "Hide new contacts" : `View ${contacts.length} new contact${contacts.length === 1 ? "" : "s"}`}</span></button>${ui.sharedScorecardContactsOpen ? `<section class="shared-contact-list" aria-label="Shared contacts">${contacts.map(sharedScorecardContact).join("")}</section>` : ""}` : `<p class="shared-privacy-note">This scorecard was shared without contact details.</p>`}<p class="shared-read-only">Read-only scorecard</p></section></main>`;
 }
 
 function sharedScorecardContact(contact) {
@@ -696,7 +745,7 @@ function maybePresentReleaseNotes() {
 
 function releaseNotesModal() {
   const items = APP_RELEASE.items.map(item => `<li class="release-note-item"><div class="release-note-icon">${icons[item.icon] || icons.sparkles}</div><div><h3>${escapeHTML(item.title)}</h3><p>${escapeHTML(item.description)}</p></div></li>`).join("");
-  return `<div class="modal-backdrop release-notes-backdrop" id="releaseNotesBackdrop"><section class="modal release-notes-modal" role="dialog" aria-modal="true" aria-labelledby="releaseNotesTitle" aria-describedby="releaseNotesVersion"><div class="release-notes-scroll"><header class="release-notes-header"><img class="release-notes-mark" src="./bridge-icon-192.png?v=1.1.64" alt=""><h2 id="releaseNotesTitle">${escapeHTML(APP_RELEASE.title)}</h2><p id="releaseNotesVersion">Version ${escapeHTML(APP_RELEASE.version)}</p></header><ul class="release-notes-list">${items}</ul></div><footer class="release-notes-actions"><button class="button primary" id="continueReleaseNotes" type="button">${icons.circleCheck}<span>Continue</span></button></footer></section></div>`;
+  return `<div class="modal-backdrop release-notes-backdrop" id="releaseNotesBackdrop"><section class="modal release-notes-modal" role="dialog" aria-modal="true" aria-labelledby="releaseNotesTitle" aria-describedby="releaseNotesVersion"><div class="release-notes-scroll"><header class="release-notes-header"><img class="release-notes-mark" src="./bridge-icon-192.png?v=1.1.65" alt=""><h2 id="releaseNotesTitle">${escapeHTML(APP_RELEASE.title)}</h2><p id="releaseNotesVersion">Version ${escapeHTML(APP_RELEASE.version)}</p></header><ul class="release-notes-list">${items}</ul></div><footer class="release-notes-actions"><button class="button primary" id="continueReleaseNotes" type="button">${icons.circleCheck}<span>Continue</span></button></footer></section></div>`;
 }
 
 function releaseFocusableElements() {
@@ -1375,6 +1424,14 @@ function bindCommunicationLogEvents(){
 }
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.addEventListener("message", event => {
+    if (event.data?.type !== "bridge-notification-navigation" || !event.data.url) return;
+    if (!stateHydrated) {
+      pendingNotificationNavigationURL = String(event.data.url);
+      return;
+    }
+    consumeNotificationNavigation(event.data.url);
+  });
   window.addEventListener("load", () => navigator.serviceWorker.register(`./sw.js?v=${APP_RELEASE.version}`).catch(() => {}), { once: true });
 }
 
